@@ -1,0 +1,6 @@
+{
+  "name": "Vexillum",
+  "description": "Simulatore strategico geopolitico e militare moderno su mappa mondiale interattiva con diplomazia, albero tecnologico ed effetto domino.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
