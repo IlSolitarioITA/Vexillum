@@ -1,3 +1,4 @@
+import { getScenarioDefinition } from '../data/scenarios';
 import { BRANCH_INFO } from '../data/technologies';
 import {
   ArmyBranches,
@@ -5,6 +6,7 @@ import {
   GameState,
   NationSeed,
   NationState,
+  ScenarioId,
   TechId,
   War,
 } from '../types/game';
@@ -44,10 +46,12 @@ export function roundInt(value: number): number {
   return Math.round(safeNum(value, 0));
 }
 
-export function formatTurnDate(turn: number): string {
+export function formatTurnDate(turn: number, scenarioId: ScenarioId = '2026'): string {
+  const def = getScenarioDefinition(scenarioId);
   const safeTurn = Math.max(0, Math.floor(safeNum(turn, 0)));
-  const monthIdx = safeTurn % 12;
-  const year = 2026 + Math.floor(safeTurn / 12);
+  const totalMonths = def.startMonthIndex + safeTurn;
+  const monthIdx = totalMonths % 12;
+  const year = def.startYear + Math.floor(totalMonths / 12);
   return `${MONTHS_IT[monthIdx]} ${year}`;
 }
 
@@ -107,26 +111,39 @@ export function getDistanceLogisticsFactor(
   return { distanceKm, factor: f, label: `Lungo raggio transoceanico (${Math.round(f * 100)}%)` };
 }
 
-export function getDefaultRelation(a?: NationSeed, b?: NationSeed): number {
+export function getDefaultRelation(
+  a?: NationSeed,
+  b?: NationSeed,
+  scenarioId: ScenarioId = '2026'
+): number {
   if (!a || !b || a.id === b.id) return 100;
   if (a.bloc !== 'non_aligned' && a.bloc === b.bloc) return 56;
   if (
     (a.bloc === 'euro_atlantic' && b.bloc === 'eastern_pact') ||
     (a.bloc === 'eastern_pact' && b.bloc === 'euro_atlantic')
   ) {
-    return -46;
+    return scenarioId === '2026' ? -46 : -64;
   }
-  if (
-    (a.bloc === 'indo_pacific' && b.bloc === 'eastern_pact') ||
-    (a.bloc === 'eastern_pact' && b.bloc === 'indo_pacific')
-  ) {
-    return -40;
-  }
-  if (
-    (a.bloc === 'euro_atlantic' && b.bloc === 'indo_pacific') ||
-    (a.bloc === 'indo_pacific' && b.bloc === 'euro_atlantic')
-  ) {
-    return 36;
+  if (scenarioId === '1939') {
+    // In 1939 indo_pacific = Unione Sovietica & Comintern (inizialmente diffidente verso entrambi)
+    if (a.bloc === 'indo_pacific' || b.bloc === 'indo_pacific') {
+      const other = a.bloc === 'indo_pacific' ? b.bloc : a.bloc;
+      if (other === 'eastern_pact') return -18;
+      if (other === 'euro_atlantic') return -15;
+    }
+  } else {
+    if (
+      (a.bloc === 'indo_pacific' && b.bloc === 'eastern_pact') ||
+      (a.bloc === 'eastern_pact' && b.bloc === 'indo_pacific')
+    ) {
+      return -40;
+    }
+    if (
+      (a.bloc === 'euro_atlantic' && b.bloc === 'indo_pacific') ||
+      (a.bloc === 'indo_pacific' && b.bloc === 'euro_atlantic')
+    ) {
+      return scenarioId === '1914' ? 68 : 36;
+    }
   }
   if (a.strictNeutral || b.strictNeutral) return 12;
   return 5;
@@ -138,7 +155,7 @@ export function getRelation(state: GameState, a: string, b: string): number {
   if (typeof state.relations[key] === 'number') {
     return clamp(state.relations[key], -100, 100);
   }
-  return getDefaultRelation(state.nations[a], state.nations[b]);
+  return getDefaultRelation(state.nations[a], state.nations[b], state.scenarioId);
 }
 
 export function areAllied(state: GameState, a: string, b: string): boolean {

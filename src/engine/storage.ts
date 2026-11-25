@@ -1,4 +1,5 @@
-import { GameState, SaveMeta, SaveSlotId, SaveSlotSummary } from '../types/game';
+import { getScenarioDefinition } from '../data/scenarios';
+import { GameState, SaveMeta, SaveSlotId, SaveSlotSummary, ScenarioId } from '../types/game';
 import { formatTurnDate, getControlledProvinces, round1 } from './helpers';
 import { GAME_STATE_VERSION } from './simulation';
 
@@ -52,8 +53,13 @@ function hydrateState(state: GameState): GameState {
       internalCrisisActive: Boolean(n.internalCrisisActive),
     };
   }
+  const scenarioId: ScenarioId =
+    state.scenarioId === '1914' || state.scenarioId === '1939' || state.scenarioId === '2026'
+      ? state.scenarioId
+      : '2026';
   return {
     ...state,
+    scenarioId,
     nations,
     navalBlockades: state.navalBlockades ?? {},
     covertUsedThisTurn: state.covertUsedThisTurn ?? {},
@@ -79,12 +85,15 @@ function buildMeta(slotId: SaveSlotId, env: StoredEnvelope | null): SaveMeta | n
   const player = env.state.nations[env.state.playerId];
   if (!player) return null;
   const totalTerritories = Object.keys(env.state.nations).length;
+  const scenarioDef = getScenarioDefinition(env.state.scenarioId);
   return {
     slotId,
     savedAt: env.savedAt,
+    scenarioId: scenarioDef.id,
+    scenarioShortName: scenarioDef.shortName,
     playerName: player.name,
     playerId: player.id,
-    dateLabel: formatTurnDate(env.state.turn),
+    dateLabel: formatTurnDate(env.state.turn, scenarioDef.id),
     turn: env.state.turn,
     territoriesCount: getControlledProvinces(env.state, player.id).length,
     totalTerritories,

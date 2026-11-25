@@ -1,3 +1,5 @@
+export type ScenarioId = '2026' | '1914' | '1939';
+
 export type BlocId =
   | 'euro_atlantic'
   | 'eastern_pact'
@@ -169,7 +171,8 @@ export interface TechDefinition {
 
 export interface GameState {
   version: number;
-  turn: number; // 0 = Gennaio 2026
+  scenarioId: ScenarioId;
+  turn: number; // 0 = mese iniziale dello scenario
   playerId: string;
   globalTension: number; // 0-100
   nations: Record<string, NationState>;
@@ -196,6 +199,8 @@ export type SaveSlotId = 'slot_1' | 'slot_2' | 'slot_3' | 'slot_4' | 'slot_5';
 export interface SaveMeta {
   slotId: SaveSlotId;
   savedAt: string;
+  scenarioId: ScenarioId;
+  scenarioShortName: string;
   playerName: string;
   playerId: string;
   dateLabel: string;

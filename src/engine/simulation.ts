@@ -1,6 +1,14 @@
-import { BLOC_META } from '../data/nations';
-import { TECH_MAP, TECHNOLOGIES } from '../data/technologies';
-import { ALL_NATION_SEEDS } from '../data/worldCatalog';
+import {
+  CovertOpSpec,
+  getScenarioBlocs,
+  getScenarioCovertOps,
+  getScenarioDefinition,
+  getScenarioInitialDiplomacy,
+  getScenarioNationSeeds,
+  getScenarioTech,
+  getScenarioTechnologies,
+  getScenarioTerritoryOwners,
+} from '../data/scenarios';
 import {
   ArmyBranch,
   AttackMode,
@@ -10,6 +18,7 @@ import {
   NationState,
   NewsCategory,
   NewsEvent,
+  ScenarioId,
   TechId,
   War,
 } from '../types/game';
@@ -42,65 +51,22 @@ import {
 
 export const GAME_STATE_VERSION = 2;
 
-export interface CovertOpSpec {
-  id: CovertOpType;
-  name: string;
-  cost: number;
-  falseFlagExtraCost: number;
-  supportsFalseFlag: boolean;
-  baseDetectionRisk: number; // percent 0-100
-  description: string;
-}
+export type { CovertOpSpec };
 
-export const COVERT_OPS: Record<CovertOpType, CovertOpSpec> = {
-  propaganda: {
-    id: 'propaganda',
-    name: 'Propaganda & Disinformazione',
-    cost: 12,
-    falseFlagExtraCost: 0,
-    supportsFalseFlag: false,
-    baseDetectionRisk: 18,
-    description: 'Erode la Stabilità interna (-10/-14%) alimentando polarizzazione e sfiducia.',
-  },
-  cyber: {
-    id: 'cyber',
-    name: 'Cyberattacco',
-    cost: 20,
-    falseFlagExtraCost: 8,
-    supportsFalseFlag: true,
-    baseDetectionRisk: 24,
-    description:
-      'Taglia le entrate PIL (-20% per 3 mesi), drena fondi e disattiva temporaneamente la difesa aerea.',
-  },
-  sabotage: {
-    id: 'sabotage',
-    name: 'Sabotaggio Infrastrutture',
-    cost: 24,
-    falseFlagExtraCost: 8,
-    supportsFalseFlag: true,
-    baseDetectionRisk: 28,
-    description:
-      'Colpisce difese, fortificazioni e preparazione militare (-30% difesa per 3 mesi, -6% Stabilità).',
-  },
-  rebels: {
-    id: 'rebels',
-    name: 'Finanzia Opposizione / Ribelli',
-    cost: 26,
-    falseFlagExtraCost: 0,
-    supportsFalseFlag: false,
-    baseDetectionRisk: 26,
-    description:
-      'Abbassa drasticamente la Stabilità (-12/-16%). Sotto il 30% può esplodere una Rivolta Interna.',
-  },
-};
+export const COVERT_OPS: Record<CovertOpType, CovertOpSpec> = getScenarioCovertOps('2026');
+
+export function getCovertOpsForScenario(scenarioId?: ScenarioId): Record<CovertOpType, CovertOpSpec> {
+  return getScenarioCovertOps(scenarioId);
+}
 
 export function getCovertDetectionRisk(
   attacker: NationState,
   target: NationState,
   opType: CovertOpType,
-  isFalseFlag: boolean
+  isFalseFlag: boolean,
+  scenarioId: ScenarioId = '2026'
 ): number {
-  const spec = COVERT_OPS[opType];
+  const spec = getScenarioCovertOps(scenarioId)[opType];
   let risk = spec.baseDetectionRisk;
   if (isFalseFlag) risk += 6;
   if (hasTech(attacker, 'cyber_warfare')) risk -= 10;
@@ -115,17 +81,24 @@ function makeNews(
   category: NewsCategory,
   headline: string,
   detail: string,
-  nationIds?: string[]
+  nationIds?: string[],
+  scenarioId: ScenarioId = '2026'
 ): NewsEvent {
   return {
     id: `news_${turn}_${Math.random().toString(36).slice(2, 9)}`,
     turn,
-    dateLabel: formatTurnDate(turn),
+    dateLabel: formatTurnDate(turn, scenarioId),
     category,
     headline,
     detail,
     nationIds,
   };
+}
+
+function syncNewsDates(state: GameState): void {
+  for (const item of state.news) {
+    item.dateLabel = formatTurnDate(item.turn, state.scenarioId);
+  }
 }
 
 function setRelation(state: GameState, a: string, b: string, value: number): void {
@@ -167,13 +140,23 @@ function cloneState(state: GameState): GameState {
   };
 }
 
-export function createInitialGameState(playerId: string): GameState {
+export function createInitialGameState(
+  playerId: string,
+  scenarioId: ScenarioId = '2026'
+): GameState {
+  const scenario = getScenarioDefinition(scenarioId);
+  const seeds = getScenarioNationSeeds(scenarioId);
+  const territoryOwners = getScenarioTerritoryOwners(scenarioId);
+  const blocMeta = getScenarioBlocs(scenarioId);
+
   const nations: Record<string, NationState> = {};
-  for (const seed of ALL_NATION_SEEDS) {
+  for (const seed of seeds) {
+    const owner = territoryOwners[seed.id] ?? seed.id;
+    const isSubject = owner !== seed.id;
     nations[seed.id] = {
       ...seed,
-      ownerId: seed.id,
-      funds: seed.startingFunds,
+      ownerId: owner,
+      funds: isSubject ? 0 : seed.startingFunds,
       aggressiveness: 0,
       researchedTechs: [],
       activeResearch: null,
@@ -183,92 +166,121 @@ export function createInitialGameState(playerId: string): GameState {
       cyberDisruptedUntilTurn: -1,
       sabotagedUntilTurn: -1,
       internalCrisisActive: false,
-      army: { ...seed.army },
+      army: isSubject ? { ground: 0, air: 0, navy: 0, defense: 0 } : { ...seed.army },
       neighbors: [...seed.neighbors],
     };
   }
 
-  const validPlayerId = nations[playerId] ? playerId : '380';
+  // Ensure selected playerId is sovereign in this scenario
+  const requested = nations[playerId];
+  const validPlayerId =
+    requested && requested.ownerId === requested.id ? playerId : scenario.defaultPlayerId;
 
   const relations: Record<string, number> = {};
   const alliances: Record<string, boolean> = {};
+  const nonAggressionPacts: Record<string, number> = {};
 
-  const coreBlocMembers = Object.values(nations).filter(
-    (n) => n.bloc === 'euro_atlantic' || n.bloc === 'eastern_pact' || n.bloc === 'indo_pacific'
-  );
-  for (let i = 0; i < coreBlocMembers.length; i++) {
-    for (let j = i + 1; j < coreBlocMembers.length; j++) {
-      const a = coreBlocMembers[i];
-      const b = coreBlocMembers[j];
-      if (a.bloc === b.bloc) {
-        alliances[pairKey(a.id, b.id)] = true;
+  if (scenarioId === '2026') {
+    const coreBlocMembers = Object.values(nations).filter(
+      (n) =>
+        isSovereign(n) &&
+        (n.bloc === 'euro_atlantic' || n.bloc === 'eastern_pact' || n.bloc === 'indo_pacific')
+    );
+    for (let i = 0; i < coreBlocMembers.length; i++) {
+      for (let j = i + 1; j < coreBlocMembers.length; j++) {
+        const a = coreBlocMembers[i];
+        const b = coreBlocMembers[j];
+        if (a.bloc === b.bloc) {
+          alliances[pairKey(a.id, b.id)] = true;
+        }
       }
     }
   }
 
-  const specialPairs: Array<[string, string, number, boolean?]> = [
-    ['840', '392', 78, true],
-    ['840', '410', 76, true],
-    ['840', '036', 80, true],
-    ['840', '376', 72, true],
-    ['840', '158', 65, true],
-    ['840', '804', 52, false],
-    ['643', '804', -88, false],
-    ['156', '158', -82, false],
-    ['410', '408', -90, false],
-    ['376', '364', -90, false],
-    ['376', '760', -75, false],
-    ['356', '586', -62, false],
-    ['356', '156', -38, false],
-    ['300', '792', -28, false],
-    ['682', '364', -36, false],
-    ['012', '504', -40, false],
-    ['156', '643', 74, true],
-    ['156', '586', 58, false],
-    ['051', '031', -65, false],
-    ['688', 'XKX', -72, false],
-    ['196', 'NCY', -68, false],
-  ];
-
-  for (const [a, b, rel, allied] of specialPairs) {
-    if (nations[a] && nations[b]) {
+  const diplomacy = getScenarioInitialDiplomacy(scenarioId);
+  for (const [a, b] of diplomacy.alliances) {
+    if (nations[a] && nations[b] && isSovereign(nations[a]) && isSovereign(nations[b])) {
+      alliances[pairKey(a, b)] = true;
+      relations[pairKey(a, b)] = Math.max(relations[pairKey(a, b)] ?? 0, 72);
+    }
+  }
+  for (const [a, b, expiry] of diplomacy.nonAggressionPacts) {
+    if (nations[a] && nations[b] && isSovereign(nations[a]) && isSovereign(nations[b])) {
+      nonAggressionPacts[pairKey(a, b)] = expiry;
+    }
+  }
+  for (const [a, b, rel] of diplomacy.relations) {
+    if (nations[a] && nations[b] && isSovereign(nations[a]) && isSovereign(nations[b])) {
       relations[pairKey(a, b)] = rel;
-      if (allied !== undefined) {
-        if (allied) alliances[pairKey(a, b)] = true;
-        else delete alliances[pairKey(a, b)];
-      }
+    }
+  }
+
+  const wars: War[] = [];
+  for (const w of diplomacy.initialWars) {
+    if (
+      nations[w.attackerId] &&
+      nations[w.defenderId] &&
+      isSovereign(nations[w.attackerId]) &&
+      isSovereign(nations[w.defenderId])
+    ) {
+      wars.push({
+        id: `war_0_${w.attackerId}_${w.defenderId}`,
+        attackerId: w.attackerId,
+        defenderId: w.defenderId,
+        startTurn: 0,
+        attackerControl: w.attackerControl ?? 0,
+        defenderControl: 0,
+        attackerLosses: 0,
+        defenderLosses: 0,
+        triggeredByAlliance: false,
+      });
     }
   }
 
   const playerNation = nations[validPlayerId];
+  const sovereignCount = Object.values(nations).filter((n) => isSovereign(n)).length;
+
+  const openingNews: NewsEvent[] = [
+    makeNews(
+      0,
+      'global',
+      `${playerNation.name} assume il comando (${scenario.shortName})`,
+      scenarioId === '1914'
+        ? `Luglio 1914: la Crisi di Sarajevo infiamma l’Europa. Triplice Intesa e Imperi Centrali mobilitano milioni di soldati mentre ${sovereignCount} potenze sovrane decidono il destino del secolo.`
+        : scenarioId === '1939'
+          ? `Settembre 1939: la guerra esplode sul fronte polacco. Alleati e Potenze dell’Asse si scontrano mentre URSS (Patto Molotov-Ribbentrop) e Stati Uniti osservano gli sviluppi.`
+          : `Gennaio 2026: tutte le ${sovereignCount} nazioni sono attive. Usa operazioni multi-dominio (Terra, Aria, Mare, Combinato) e guerra ibrida per plasmare l’equilibrio globale.`,
+      [validPlayerId],
+      scenarioId
+    ),
+    makeNews(
+      0,
+      'diplomacy',
+      scenarioId === '1914'
+        ? 'Ultimatum nei Balcani: mobilitazione generale in Europa'
+        : scenarioId === '1939'
+          ? 'Patto Germania–URSS in vigore · Fronte occidentale in allarme'
+          : 'Blocchi geopolitici in stato di allerta',
+      `Schieramento attuale di ${playerNation.name}: ${blocMeta[playerNation.bloc].name}.`,
+      [validPlayerId],
+      scenarioId
+    ),
+  ];
 
   return {
     version: GAME_STATE_VERSION,
+    scenarioId,
     turn: 0,
     playerId: validPlayerId,
-    globalTension: 22,
+    globalTension: scenario.initialTension,
     nations,
     relations,
     alliances,
-    nonAggressionPacts: {},
+    nonAggressionPacts,
     sanctions: {},
     navalBlockades: {},
-    wars: [],
-    news: [
-      makeNews(
-        0,
-        'global',
-        `${playerNation.name} assume il comando strategico`,
-        `Gennaio 2026: tutte le ${ALL_NATION_SEEDS.length} nazioni sono attive. Usa operazioni multi-dominio (Terra, Aria, Mare, Combinato) e guerra ibrida per plasmare l’equilibrio globale.`,
-        [validPlayerId]
-      ),
-      makeNews(
-        0,
-        'diplomacy',
-        'Blocchi geopolitici in stato di allerta',
-        `Il ${BLOC_META[playerNation.bloc].name} monitora movimenti militari, tensioni regionali e minacce cibernetiche.`
-      ),
-    ],
+    wars,
+    news: openingNews,
     lastBattleReport: null,
     battleHistory: [],
     offensivesThisTurn: {},
@@ -569,7 +581,7 @@ export function startResearch(
 ): { state: GameState; error?: string } {
   const next = cloneState(state);
   const player = next.nations[next.playerId];
-  const tech = TECH_MAP[techId];
+  const tech = getScenarioTech(next.scenarioId, techId);
   if (!player || !tech) return { state, error: 'Tecnologia non valida.' };
   if (player.researchedTechs.includes(techId)) {
     return { state, error: 'Tecnologia già completata.' };
@@ -624,6 +636,7 @@ export function improveRelations(
     );
   }
 
+  syncNewsDates(next);
   return { state: next, message: `Relazioni con ${target.name} migliorate (+16).` };
 }
 
@@ -662,6 +675,7 @@ export function signNonAggression(
     )
   );
 
+  syncNewsDates(next);
   return { state: next, message: `Patto firmato con ${target.name} per 12 mesi.` };
 }
 
@@ -700,6 +714,7 @@ export function formAlliance(
     )
   );
 
+  syncNewsDates(next);
   return { state: next, message: `Alleanza militare siglata con ${target.name}!` };
 }
 
@@ -730,6 +745,7 @@ export function toggleSanction(
         [player.id, targetId]
       )
     );
+    syncNewsDates(next);
     return { state: next, message: `Sanzioni imposte contro ${target.name}.` };
   }
 }
@@ -774,6 +790,7 @@ export function declareWar(
   next.news.unshift(makeNews(next.turn, 'war', headline, detail, [player.id, targetId]));
 
   triggerDominoReactions(next, player.id, targetId);
+  syncNewsDates(next);
 
   return { state: next, message: `Guerra dichiarata contro ${target.name}.` };
 }
@@ -826,6 +843,7 @@ export function proposePeace(
     )
   );
 
+  syncNewsDates(next);
   return { state: next, message: `${target.name} ha accettato l’armistizio!` };
 }
 
@@ -918,6 +936,7 @@ export function launchPlayerOffensive(
     );
   }
 
+  syncNewsDates(next);
   checkEndConditions(next);
   return { state: next };
 }
@@ -932,7 +951,8 @@ export function executeCovertOperation(
   const next = cloneState(state);
   const player = next.nations[next.playerId];
   const target = next.nations[targetId];
-  const spec = COVERT_OPS[opType];
+  const scenarioOps = getScenarioCovertOps(next.scenarioId);
+  const spec = scenarioOps[opType];
 
   if (!player || !target || !spec || !isSovereign(target)) {
     return { state, error: 'Bersaglio non valido.' };
@@ -963,7 +983,13 @@ export function executeCovertOperation(
   player.funds = round1(Math.max(0, player.funds - totalCost));
   next.covertUsedThisTurn[targetId] = true;
 
-  const detectionRisk = getCovertDetectionRisk(player, target, opType, isFalseFlag);
+  const detectionRisk = getCovertDetectionRisk(
+    player,
+    target,
+    opType,
+    isFalseFlag,
+    next.scenarioId
+  );
   const detected = Math.random() * 100 < detectionRisk;
 
   // Apply operational damage to target (even if later exposed, covert strike still has partial or full impact)
@@ -983,7 +1009,10 @@ export function executeCovertOperation(
       next.turn + 3
     );
     target.stability = clamp(roundInt(target.stability - 4), 5, 100);
-    effectSummary = `Difese aeree disattivate e PIL -20% per 3 mesi (-${fundsLoss} B$ drenati).`;
+    effectSummary =
+      next.scenarioId === '2026'
+        ? `Difese aeree disattivate e PIL -20% per 3 mesi (-${fundsLoss} B$ drenati).`
+        : `Comunicazioni e cifrari compromessi: ricognizione/difesa aerea accecata e PIL -20% per 3 mesi (-${fundsLoss} B$ drenati).`;
   } else if (opType === 'sabotage') {
     const defLoss = Math.max(2, roundInt(target.army.defense * 0.14));
     const groundLoss = Math.max(1, roundInt(target.army.ground * 0.06));
@@ -1035,7 +1064,10 @@ export function executeCovertOperation(
 
     const detail = `${target.name} ha attribuito l’attacco (${spec.name}) a ${player.name}, imponendo sanzioni immediate.${extraDetail} ${effectSummary}`;
 
-    next.news.unshift(makeNews(next.turn, 'covert', headline, detail, [player.id, targetId]));
+    next.news.unshift(
+      makeNews(next.turn, 'covert', headline, detail, [player.id, targetId], next.scenarioId)
+    );
+    syncNewsDates(next);
 
     return {
       state: next,
@@ -1067,12 +1099,13 @@ export function executeCovertOperation(
       next.globalTension = clamp(roundInt(next.globalTension + 9), 0, 100);
 
       const warHeadline = `False Flag riuscito: ${target.name} dichiara guerra a ${framed.name}!`;
-      const warDetail = `Convinta che ${framed.name} abbia condotto il ${spec.name.toLowerCase()}, ${target.name} apre le ostilità! ${effectSummary}`;
+      const warDetail = `Convinta che ${framed.name} abbia condotto l’operazione (${spec.name}), ${target.name} apre le ostilità! ${effectSummary}`;
       next.news.unshift(
-        makeNews(next.turn, 'war', warHeadline, warDetail, [targetId, framed.id])
+        makeNews(next.turn, 'war', warHeadline, warDetail, [targetId, framed.id], next.scenarioId)
       );
       // Domino chain reaction between their alliance blocs!
       triggerDominoReactions(next, targetId, framed.id);
+      syncNewsDates(next);
 
       return {
         state: next,
@@ -1088,8 +1121,11 @@ export function executeCovertOperation(
     }
 
     const ffHeadline = `False Flag riuscito: ${target.name} accusa ${framed.name}`;
-    const ffDetail = `${target.name} attribuisce il ${spec.name.toLowerCase()} a ${framed.name} (relazioni crollate a ${newRel}). ${effectSummary}`;
-    next.news.unshift(makeNews(next.turn, 'covert', ffHeadline, ffDetail, [targetId, framed.id]));
+    const ffDetail = `${target.name} attribuisce l’operazione (${spec.name}) a ${framed.name} (relazioni crollate a ${newRel}). ${effectSummary}`;
+    next.news.unshift(
+      makeNews(next.turn, 'covert', ffHeadline, ffDetail, [targetId, framed.id], next.scenarioId)
+    );
+    syncNewsDates(next);
 
     return {
       state: next,
@@ -1108,7 +1144,10 @@ export function executeCovertOperation(
     ? `Crisi Interna e Rivolta in ${target.name}`
     : `${spec.name} anonimo su ${target.name}`;
   const anonDetail = `Operazione riuscita senza lasciare tracce. ${effectSummary}`;
-  next.news.unshift(makeNews(next.turn, 'covert', anonHeadline, anonDetail, [targetId]));
+  next.news.unshift(
+    makeNews(next.turn, 'covert', anonHeadline, anonDetail, [targetId], next.scenarioId)
+  );
+  syncNewsDates(next);
 
   return {
     state: next,
@@ -1198,14 +1237,15 @@ export function advanceTurn(state: GameState): GameState {
         }
         nation.activeResearch = null;
         if (nation.id === next.playerId) {
-          const spec = TECH_MAP[finishedId];
+          const spec = getScenarioTech(next.scenarioId, finishedId);
           next.news.unshift(
             makeNews(
               next.turn,
               'economy',
               `Ricerca completata: ${spec.name}`,
               `${nation.name} ha schierato ${spec.name} (${spec.shortBonus}).`,
-              [nation.id]
+              [nation.id],
+              next.scenarioId
             )
           );
         }
@@ -1214,11 +1254,12 @@ export function advanceTurn(state: GameState): GameState {
   }
 
   // 2. AI recruitment & research
+  const scenarioTechs = getScenarioTechnologies(next.scenarioId);
   for (const nation of sovereigns) {
     if (nation.id === next.playerId) continue;
 
     if (!nation.activeResearch && nation.funds > 75 && Math.random() < 0.14) {
-      const available = TECHNOLOGIES.filter(
+      const available = scenarioTechs.filter(
         (t) => !nation.researchedTechs.includes(t.id) && nation.funds >= t.cost + 20
       );
       if (available.length > 0) {
@@ -1450,6 +1491,7 @@ export function advanceTurn(state: GameState): GameState {
   }
 
   next.news = next.news.slice(0, 60);
+  syncNewsDates(next);
 
   checkEndConditions(next);
   return next;

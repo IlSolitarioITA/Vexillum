@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { ALL_NATION_SEED_MAP } from '../data/worldCatalog';
+import { getScenarioDefinition, getScenarioNationSeeds } from '../data/scenarios';
 import { formatTurnDate, getControlledProvinces } from '../engine/helpers';
 import { GameState, SaveSlotId, SaveSlotSummary } from '../types/game';
 import { FlagBanner } from './FlagBanner';
@@ -97,7 +97,12 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
 
           {saveSlots.map((slot) => {
             const isActive = slot.slotId === activeSlotId;
-            const seed = slot.meta ? ALL_NATION_SEED_MAP[slot.meta.playerId] : null;
+            const slotScenario = slot.meta ? getScenarioDefinition(slot.meta.scenarioId) : null;
+            const seed = slot.meta
+              ? getScenarioNationSeeds(slot.meta.scenarioId).find(
+                  (n) => n.id === slot.meta?.playerId
+                ) ?? null
+              : null;
             return (
               <div
                 key={slot.slotId}
@@ -109,10 +114,25 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2.5 min-w-0">
-                    {seed && <FlagBanner flag={seed.flag} name={seed.name} size="sm" className="mt-0.5" />}
+                    {seed && slot.meta && (
+                      <FlagBanner
+                        flag={seed.flag}
+                        name={slot.meta.playerName}
+                        size="sm"
+                        className="mt-0.5"
+                      />
+                    )}
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-100 flex flex-wrap items-center gap-1.5">
                         <span>{slot.label}</span>
+                        {slot.meta && slotScenario && (
+                          <span
+                            className="text-[11px] font-semibold font-mono-num"
+                            style={{ color: slotScenario.accentColor }}
+                          >
+                            · {slot.meta.scenarioShortName}
+                          </span>
+                        )}
                         {isActive && (
                           <span className="text-[11px] font-medium text-cyan-300">
                             · Slot attivo
@@ -426,22 +446,52 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+          <section className="space-y-1.5">
+            <h3 className="font-semibold text-slate-100">
+              1. Scenari Storici & Moderni (2026, 1914, 1939)
+            </h3>
+            <p className="whitespace-normal">
+              Dal menu iniziale puoi avviare campagne in 3 epoche distinte, ognuna con confini,
+              alleanze, tecnologie e operazioni coperte coerenti con il periodo:
+            </p>
+            <ul className="space-y-1 pl-4 list-disc text-slate-300 text-xs leading-relaxed">
+              <li className="whitespace-normal">
+                <strong className="text-cyan-300">Mondo Attuale (Gennaio 2026):</strong> 175
+                nazioni moderne, droni tattici, guerra cibernetica, difesa missilistica e blocchi
+                contemporanei.
+              </li>
+              <li className="whitespace-normal">
+                <strong className="text-amber-300">Prima Guerra Mondiale (Luglio 1914):</strong>{' '}
+                Triplice Intesa contro Imperi Centrali (con imperi storici accorpati, Italia e USA
+                inizialmente neutrali), enormi eserciti di fanteria, grandi flotte e aviazione
+                iniziale ridotta a biplani; tecnologie come <em>Guerra di Trincea</em>,{' '}
+                <em>Artiglieria Pesante</em> e <em>Corazzate Dreadnought</em>.
+              </li>
+              <li className="whitespace-normal">
+                <strong className="text-rose-300">Seconda Guerra Mondiale (Settembre 1939):</strong>{' '}
+                Alleati contro Potenze dell’Asse, guerra attiva in Polonia, Patto di non aggressione
+                Germania–URSS e USA inizialmente neutrali ma colosso industriale; tecnologie come{' '}
+                <em>Blitzkrieg</em>, <em>Radar</em>, <em>Portaerei</em> e <em>Bombardieri Pesanti</em>.
+              </li>
+            </ul>
+          </section>
+
           <section className="space-y-1">
             <h3 className="font-semibold text-slate-100">
-              1. Mappa 360°, Economia e 4 Rami Militari
+              2. Mappa 360°, Economia e 4 Rami Militari
             </h3>
             <p className="whitespace-normal">
               Trascina la mappa senza interruzioni a 360° e clicca qualsiasi paese del mondo. Premi{' '}
               <strong className="text-amber-300">Prossimo Turno</strong> per incassare il gettito
               mensile e spendi i Fondi in <strong className="text-cyan-300">Esercito & Ricerca</strong>{' '}
               per reclutare unità nei 4 rami (<em>Terra, Aria, Mare, Difesa</em>), ricercare
-              tecnologie militari o stabilizzare il fronte interno.
+              tecnologie d’epoca o stabilizzare il fronte interno.
             </p>
           </section>
 
           <section className="space-y-1.5">
             <h3 className="font-semibold text-slate-100">
-              2. Le 4 Modalità di Attacco & Divario di Potenza
+              3. Le 4 Modalità di Attacco & Divario di Potenza
             </h3>
             <p className="whitespace-normal">
               Puoi dichiarare guerra a qualsiasi stato sovrano, ma la distanza geografica, la
@@ -476,7 +526,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
 
           <section className="space-y-1.5">
             <h3 className="font-semibold text-slate-100">
-              3. Guerra Ibrida, Instabilità & Rivolte Interne
+              4. Guerra Ibrida, Instabilità & Rivolte Interne
             </h3>
             <p className="whitespace-normal">
               Nella scheda <strong className="text-violet-300">Op. Coperte</strong> di ogni nazione
@@ -507,15 +557,17 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
 
           <section className="space-y-1">
             <h3 className="font-semibold text-slate-100">
-              4. Operazioni “False Flag” (Sotto Falsa Bandiera)
+              5. Operazioni “False Flag” (Sotto Falsa Bandiera)
             </h3>
             <p className="whitespace-normal">
-              Per <em>Cyberattacchi</em> e <em>Sabotaggi</em> puoi scegliere{' '}
+              Per <em>Cyberattacchi</em> (nel 2026) o <em>Intercettazione &amp; Sabotaggio Comunicazioni</em>{' '}
+              (nel 1914 e 1939, come telegrammi cifrati falsi o incidenti di confine) e{' '}
+              <em>Sabotaggi</em> puoi scegliere{' '}
               <strong className="text-violet-300">False Flag</strong> e far ricadere la colpa su una
               nazione terza. Se l’operazione non viene scoperta, la vittima accusa il paese
               incastrato: le loro relazioni crollano e può scoppiare una{' '}
               <strong className="text-rose-300">guerra reale tra loro</strong>. Ogni azione ha però
-              un <strong>rischio di scoperta</strong> legato alla tecnologia nemica: se vieni
+              un <strong>rischio di scoperta</strong> legato all’intelligence nemica: se vieni
               smascherato subisci un crollo diplomatico con entrambi gli stati, sanzioni e forte
               aumento della Tensione Globale.
             </p>
@@ -523,7 +575,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
 
           <section className="space-y-1">
             <h3 className="font-semibold text-slate-100">
-              5. Effetto Domino, Paesi Neutrali e 5 Slot di Salvataggio
+              6. Effetto Domino, Paesi Neutrali e 5 Slot di Salvataggio
             </h3>
             <p className="whitespace-normal">
               Attaccare un membro di un’alleanza (o scatenare una guerra tramite False Flag) può
@@ -605,7 +657,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           <div>
             <div className="text-slate-400">Data</div>
             <div className="font-mono-num font-semibold text-slate-100 mt-0.5">
-              {formatTurnDate(gameState.turn)}
+              {formatTurnDate(gameState.turn, gameState.scenarioId)}
             </div>
           </div>
           <div>

@@ -10,7 +10,8 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { BRANCH_INFO, TECHNOLOGIES } from '../data/technologies';
+import { getScenarioDefinition, getScenarioTechnologies } from '../data/scenarios';
+import { BRANCH_INFO } from '../data/technologies';
 import {
   getControlledProvinces,
   getMonthlyEconomy,
@@ -54,6 +55,8 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
   const player = gameState.nations[gameState.playerId];
   const eco = getMonthlyEconomy(gameState, gameState.playerId);
   const hasCoast = getControlledProvinces(gameState, player.id).some((p) => p.coastal);
+  const scenarioTechs = getScenarioTechnologies(gameState.scenarioId);
+  const scenarioDef = getScenarioDefinition(gameState.scenarioId);
 
   return (
     <div
@@ -108,7 +111,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                 }`}
               >
                 <Cpu className="w-3.5 h-3.5" />
-                <span>Tecnologie ({player.researchedTechs.length}/{TECHNOLOGIES.length})</span>
+                <span>Tecnologie ({player.researchedTechs.length}/{scenarioTechs.length})</span>
               </button>
             </div>
             <button
@@ -240,6 +243,13 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                <span>
+                  Albero tecnologico epoca:{' '}
+                  <strong className="text-slate-100">{scenarioDef.title}</strong> ({scenarioDef.eraTag})
+                </span>
+              </div>
+
               {player.activeResearch && (
                 <div className="rounded-lg bg-amber-950/30 border border-amber-500/35 px-4 py-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
@@ -247,7 +257,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                     <div className="text-xs">
                       <span className="text-amber-200 font-semibold">
                         Ricerca in corso:{' '}
-                        {TECHNOLOGIES.find((t) => t.id === player.activeResearch?.techId)?.name}
+                        {scenarioTechs.find((t) => t.id === player.activeResearch?.techId)?.name}
                       </span>
                       <span className="text-slate-300 ml-2">
                         ({player.activeResearch.turnsRemaining}{' '}
@@ -272,7 +282,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {TECHNOLOGIES.map((tech) => {
+                {scenarioTechs.map((tech) => {
                   const completed = player.researchedTechs.includes(tech.id);
                   const inProgress = player.activeResearch?.techId === tech.id;
                   const canStart =

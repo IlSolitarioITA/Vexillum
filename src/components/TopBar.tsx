@@ -13,6 +13,7 @@ import {
 import { formatTurnDate, getMonthlyEconomy, round1, roundInt } from '../engine/helpers';
 import { GameState } from '../types/game';
 import { FlagBanner } from './FlagBanner';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface TopBarProps {
   gameState: GameState;
@@ -55,7 +56,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const player = gameState.nations[gameState.playerId];
   const eco = getMonthlyEconomy(gameState, gameState.playerId);
-  const dateLabel = formatTurnDate(gameState.turn);
+  const dateLabel = formatTurnDate(gameState.turn, gameState.scenarioId);
   const activePlayerWars = gameState.wars.filter(
     (w) => w.attackerId === gameState.playerId || w.defenderId === gameState.playerId
   ).length;
@@ -75,7 +76,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         : 'text-emerald-400';
 
   return (
-    <header className="relative z-30 w-full bg-[#0B1220]/96 backdrop-blur-md border-b border-slate-800/90 px-3 sm:px-4 py-2">
+    <header className="relative z-30 w-full bg-[#0B1220]/96 backdrop-blur-md border-b border-slate-800/90 px-3 sm:px-4 pb-2 safe-top">
       <div className="flex items-center justify-between gap-2 sm:gap-3 min-w-0">
         {/* Zone 1: Brand + Nation Identity & Date */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -238,6 +239,10 @@ export const TopBar: React.FC<TopBarProps> = ({
                   )}
                   <span>{soundMuted ? 'Audio Tattico: Off' : 'Audio Tattico: On'}</span>
                 </button>
+                <PWAInstallButton
+                  variant="menuItem"
+                  onActionComplete={() => setMenuOpen(false)}
+                />
                 <div className="my-1 border-t border-slate-800" />
                 <button
                   type="button"

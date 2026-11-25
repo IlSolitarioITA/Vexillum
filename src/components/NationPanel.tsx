@@ -18,7 +18,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { BLOC_META } from '../data/nations';
+import { getScenarioBlocs } from '../data/scenarios';
 import { estimateCombatPreview } from '../engine/combat';
 import {
   areAllied,
@@ -41,7 +41,7 @@ import {
   isUnderNavalBlockade,
   roundInt,
 } from '../engine/helpers';
-import { COVERT_OPS, getCovertDetectionRisk } from '../engine/simulation';
+import { getCovertDetectionRisk, getCovertOpsForScenario } from '../engine/simulation';
 import { AttackMode, CovertOpType, GameState } from '../types/game';
 import { FlagBanner } from './FlagBanner';
 
@@ -197,12 +197,20 @@ export const NationPanel: React.FC<NationPanelProps> = ({
       : war.attackerControl
     : 0;
 
-  const selectedCovertSpec = COVERT_OPS[covertOp];
+  const scenarioBlocs = getScenarioBlocs(gameState.scenarioId);
+  const scenarioCovertOps = getCovertOpsForScenario(gameState.scenarioId);
+  const selectedCovertSpec = scenarioCovertOps[covertOp];
   const effectiveFalseFlag = useFalseFlag && selectedCovertSpec.supportsFalseFlag;
   const covertCost =
     selectedCovertSpec.cost + (effectiveFalseFlag ? selectedCovertSpec.falseFlagExtraCost : 0);
   const covertRisk = !isPlayer
-    ? getCovertDetectionRisk(player, activeTarget, covertOp, effectiveFalseFlag)
+    ? getCovertDetectionRisk(
+        player,
+        activeTarget,
+        covertOp,
+        effectiveFalseFlag,
+        gameState.scenarioId
+      )
     : 0;
 
   return (
@@ -221,8 +229,10 @@ export const NationPanel: React.FC<NationPanelProps> = ({
             <p className="mt-1 text-xs text-slate-400 whitespace-normal">
               {province.region}
               <span aria-hidden="true"> · </span>
-              <span style={{ color: BLOC_META[activeTarget.bloc].color }}>
-                {activeTarget.strictNeutral ? 'Stato Neutrale' : BLOC_META[activeTarget.bloc].name}
+              <span style={{ color: scenarioBlocs[activeTarget.bloc].color }}>
+                {activeTarget.strictNeutral
+                  ? 'Stato Neutrale'
+                  : scenarioBlocs[activeTarget.bloc].name}
               </span>
             </p>
           </div>
@@ -960,7 +970,7 @@ export const NationPanel: React.FC<NationPanelProps> = ({
                   { id: 'rebels', icon: Flame },
                 ] as const
               ).map(({ id, icon: Icon }) => {
-                const spec = COVERT_OPS[id];
+                const spec = scenarioCovertOps[id];
                 const active = covertOp === id;
                 return (
                   <button

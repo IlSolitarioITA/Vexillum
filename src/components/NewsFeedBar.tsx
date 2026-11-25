@@ -96,7 +96,7 @@ export const NewsFeedBar: React.FC<NewsFeedBarProps> = ({ news, onSelectNation }
       )}
 
       {/* Non-truncated full-text Bottom Headline Bar */}
-      <div className="pointer-events-auto w-full bg-[#0A101D]/94 backdrop-blur-md border-t border-slate-800/90 px-3 sm:px-4 py-2 flex items-start sm:items-center justify-between gap-3">
+      <div className="pointer-events-auto w-full bg-[#0A101D]/94 backdrop-blur-md border-t border-slate-800/90 px-3 sm:px-4 pt-2 safe-bottom flex items-start sm:items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}

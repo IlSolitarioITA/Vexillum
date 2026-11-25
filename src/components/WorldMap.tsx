@@ -5,7 +5,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import worldAtlas from 'world-atlas/countries-110m.json';
 import { Crosshair, Globe, HeartHandshake, Minus, Plus, RotateCcw } from 'lucide-react';
-import { BLOC_META } from '../data/nations';
+import { getScenarioBlocs } from '../data/scenarios';
 import { EXCLUDED_TERRITORY_IDS, resolveAtlasNationId } from '../data/worldCatalog';
 import { areAllied, areAtWar, getMilitaryRating, getRelation, getRelationLabel } from '../engine/helpers';
 import { GameState, MapMode } from '../types/game';
@@ -655,10 +655,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
               </div>
               <div className="text-[11px] text-slate-400 whitespace-normal">
                 {hoveredNation.ownerId !== hoveredNation.id
-                  ? `Annessa da ${hoveredOwner.name}`
+                  ? `Territorio di ${hoveredOwner.name}`
                   : hoveredNation.strictNeutral
-                    ? 'Stato Neutrale · Non Allineato'
-                    : BLOC_META[hoveredNation.bloc].shortName}
+                    ? 'Stato Neutrale'
+                    : getScenarioBlocs(gameState.scenarioId)[hoveredNation.bloc].shortName}
               </div>
             </div>
           </div>

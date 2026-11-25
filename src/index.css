@@ -29,6 +29,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* iOS Notch / Dynamic Island & Home Indicator Safe Areas */
+.safe-top {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.safe-bottom-float {
+  bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
 @keyframes war-dash {
   to {
     stroke-dashoffset: -28;

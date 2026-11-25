@@ -444,7 +444,7 @@ export function resolveOffensive(
   const report: BattleReport = {
     id: `battle_${state.turn}_${attackerId}_${defenderId}_${Date.now()}`,
     turn: state.turn,
-    dateLabel: formatTurnDate(state.turn),
+    dateLabel: formatTurnDate(state.turn, state.scenarioId),
     attackMode: mode,
     attackerId,
     attackerName: attacker.name,

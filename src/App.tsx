@@ -46,6 +46,7 @@ import {
   MapMode,
   SaveSlotId,
   SaveSlotSummary,
+  ScenarioId,
   TechId,
 } from './types/game';
 
@@ -112,18 +113,21 @@ export default function App() {
     setMilitaryFeedback({ text, tone });
   }, []);
 
-  const handleStartGame = useCallback((nationId: string, slotId: SaveSlotId) => {
-    const fresh = createInitialGameState(nationId);
-    setActiveSlotId(slotId);
-    setGameState(fresh);
-    saveToSlot(slotId, fresh);
-    setSaveSlots(listSaveSlots());
-    setSelectedNationId(nationId);
-    setPanelFeedback(null);
-    setMilitaryFeedback(null);
-    setScreen('play');
-    sfx.victory();
-  }, []);
+  const handleStartGame = useCallback(
+    (nationId: string, slotId: SaveSlotId, scenarioId: ScenarioId) => {
+      const fresh = createInitialGameState(nationId, scenarioId);
+      setActiveSlotId(slotId);
+      setGameState(fresh);
+      saveToSlot(slotId, fresh);
+      setSaveSlots(listSaveSlots());
+      setSelectedNationId(fresh.playerId);
+      setPanelFeedback(null);
+      setMilitaryFeedback(null);
+      setScreen('play');
+      sfx.victory();
+    },
+    []
+  );
 
   const handleLoadSlot = useCallback((slotId: SaveSlotId) => {
     const loaded = loadFromSlot(slotId);
@@ -391,7 +395,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#080E18] text-slate-100">
+    <div className="h-[100dvh] w-screen overflow-hidden flex flex-col bg-[#080E18] text-slate-100">
       <TopBar
         gameState={gameState}
         soundMuted={soundMuted}
@@ -430,7 +434,7 @@ export default function App() {
             type="button"
             onClick={handleNextTurn}
             disabled={gameState.status !== 'playing'}
-            className="md:hidden fixed bottom-20 right-3 z-20 flex items-center gap-1.5 px-4 py-3 rounded-lg text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 shadow-xl ring-1 ring-amber-200/40 transition-colors whitespace-nowrap cursor-pointer"
+            className="md:hidden fixed safe-bottom-float right-3 z-20 flex items-center gap-1.5 px-4 py-3 rounded-lg text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 shadow-xl ring-1 ring-amber-200/40 transition-colors whitespace-nowrap cursor-pointer"
           >
             <span>Prossimo Turno</span>
             <ChevronRight className="w-4 h-4" />
