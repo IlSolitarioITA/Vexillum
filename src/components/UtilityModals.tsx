@@ -61,15 +61,19 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Gestione Salvataggi Multi-Slot"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl max-h-[88vh] bg-[#0D1524] border border-slate-700/80 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full sm:max-w-xl h-[86dvh] sm:h-auto sm:max-h-[88dvh] bg-[#0D1524] border-t sm:border border-slate-700/80 rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div>
+        <div className="sm:hidden flex justify-center pt-2 pb-0.5 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-slate-800 shrink-0">
+          <div className="min-w-0">
             <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none">
               Salvataggi Locali (5 Slot)
             </h2>
@@ -82,13 +86,13 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Chiudi"
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800/80 sm:bg-transparent text-slate-200 sm:text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-3 text-xs">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 pb-[max(2rem,env(safe-area-inset-bottom))] sm:pb-6 space-y-3 text-xs">
           {notice && (
             <div className="rounded-md bg-cyan-950/60 border border-cyan-500/40 px-3 py-2 text-cyan-100">
               {notice}
@@ -164,7 +168,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                       onSaveToSlot(slot.slotId);
                       setNotice(`Partita salvata su ${slot.label}.`);
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 transition-colors cursor-pointer"
+                    className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 transition-colors cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{slot.meta ? 'Sovrascrivi' : 'Salva qui'}</span>
@@ -175,7 +179,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                       <button
                         type="button"
                         onClick={() => onLoadSlot(slot.slotId)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 transition-colors cursor-pointer"
+                        className="min-h-[40px] flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 transition-colors cursor-pointer"
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>Carica</span>
@@ -187,7 +191,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                           onDeleteSlot(slot.slotId);
                           setNotice(`${slot.label} eliminato.`);
                         }}
-                        className="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-md text-slate-400 hover:text-rose-300 hover:bg-rose-950/50 border border-slate-800 transition-colors cursor-pointer"
+                        className="ml-auto min-h-[40px] flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-rose-950/50 border border-slate-800 transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Elimina</span>
@@ -204,7 +208,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
             <button
               type="button"
               onClick={onNewGame}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-md font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
+              className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Nuova Partita (Menu Iniziale)</span>
@@ -223,14 +227,14 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
                       setConfirmClearAll(false);
                       onClearLocalData();
                     }}
-                    className="flex-1 py-2 rounded-md font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
+                    className="flex-1 min-h-[42px] py-2 rounded-lg font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
                   >
                     Conferma Eliminazione
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmClearAll(false)}
-                    className="px-3 py-2 rounded-md bg-slate-800 text-slate-200 cursor-pointer"
+                    className="min-h-[42px] px-4 py-2 rounded-lg bg-slate-800 text-slate-200 cursor-pointer"
                   >
                     Annulla
                   </button>
@@ -240,7 +244,7 @@ export const SaveLoadModal: React.FC<SaveLoadModalProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmClearAll(true)}
-                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md font-medium bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-500/40 text-slate-300 hover:text-rose-200 transition-colors cursor-pointer"
+                className="w-full min-h-[42px] flex items-center justify-center gap-2 py-2 px-3 rounded-lg font-medium bg-slate-900 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-500/40 text-slate-300 hover:text-rose-200 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Elimina tutti i dati locali</span>
@@ -274,17 +278,21 @@ export const PrivacyLegalModal: React.FC<PrivacyLegalModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Privacy, GDPR e Note Legali"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl max-h-[88vh] bg-[#0D1524] border border-slate-700/80 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full sm:max-w-2xl h-[86dvh] sm:h-auto sm:max-h-[88dvh] bg-[#0D1524] border-t sm:border border-slate-700/80 rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div className="flex items-center gap-2">
+        <div className="sm:hidden flex justify-center pt-2 pb-0.5 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             <Scale className="w-5 h-5 text-emerald-400 shrink-0" />
-            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none">
+            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none truncate">
               Privacy & Note Legali
             </h2>
           </div>
@@ -292,13 +300,13 @@ export const PrivacyLegalModal: React.FC<PrivacyLegalModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Chiudi"
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800/80 sm:bg-transparent text-slate-200 sm:text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 pb-8 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
           <section className="space-y-1.5">
             <h3 className="font-semibold text-slate-100">
               Informativa Privacy & Conformità GDPR (Archiviazione Locale)
@@ -365,14 +373,14 @@ export const PrivacyLegalModal: React.FC<PrivacyLegalModalProps> = ({
                       setWipedMessage(true);
                       onClearAllLocalData();
                     }}
-                    className="flex-1 py-2 px-3 rounded-md font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
+                    className="flex-1 min-h-[42px] py-2 px-3 rounded-lg font-semibold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer"
                   >
                     Sì, elimina tutti i dati locali
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirmWipe(false)}
-                    className="px-3 py-2 rounded-md bg-slate-800 text-slate-200 cursor-pointer"
+                    className="min-h-[42px] px-4 py-2 rounded-lg bg-slate-800 text-slate-200 cursor-pointer"
                   >
                     Annulla
                   </button>
@@ -385,7 +393,7 @@ export const PrivacyLegalModal: React.FC<PrivacyLegalModalProps> = ({
                   setWipedMessage(false);
                   setConfirmWipe(true);
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-semibold bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/45 text-rose-200 transition-colors cursor-pointer"
+                className="min-h-[42px] inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/45 text-rose-200 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Elimina tutti i dati locali</span>
@@ -394,11 +402,11 @@ export const PrivacyLegalModal: React.FC<PrivacyLegalModalProps> = ({
           </section>
         </div>
 
-        <div className="px-5 py-3.5 border-t border-slate-800 flex justify-end">
+        <div className="px-4 sm:px-5 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-slate-800 flex justify-end shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-md text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
+            className="min-h-[44px] px-6 py-2 rounded-lg text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
           >
             Chiudi
           </button>
@@ -421,17 +429,21 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
       role="dialog"
       aria-modal="true"
       aria-label="Come si Gioca a Vexillum"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl max-h-[86vh] bg-[#0D1524] border border-slate-700/80 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full sm:max-w-2xl h-[86dvh] sm:h-auto sm:max-h-[86dvh] bg-[#0D1524] border-t sm:border border-slate-700/80 rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-cyan-400" />
-            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none">
+        <div className="sm:hidden flex justify-center pt-2 pb-0.5 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen className="w-5 h-5 text-cyan-400 shrink-0" />
+            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none truncate">
               Come si Gioca
             </h2>
           </div>
@@ -439,13 +451,13 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
             type="button"
             onClick={onClose}
             aria-label="Chiudi guida"
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800/80 sm:bg-transparent text-slate-200 sm:text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 pb-8 space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
           <section className="space-y-1.5">
             <h3 className="font-semibold text-slate-100">
               1. Scenari Storici & Moderni (2026, 1914, 1939)
@@ -481,7 +493,7 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
               2. Mappa 360°, Economia e 4 Rami Militari
             </h3>
             <p className="whitespace-normal">
-              Trascina la mappa senza interruzioni a 360° e clicca qualsiasi paese del mondo. Premi{' '}
+              Trascina la mappa senza interruzioni a 360° e tocca qualsiasi paese del mondo. Premi{' '}
               <strong className="text-amber-300">Prossimo Turno</strong> per incassare il gettito
               mensile e spendi i Fondi in <strong className="text-cyan-300">Esercito & Ricerca</strong>{' '}
               per reclutare unità nei 4 rami (<em>Terra, Aria, Mare, Difesa</em>), ricercare
@@ -529,9 +541,9 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
               4. Guerra Ibrida, Instabilità & Rivolte Interne
             </h3>
             <p className="whitespace-normal">
-              Nella scheda <strong className="text-violet-300">Op. Coperte</strong> di ogni nazione
-              estera (anche in tempo di pace) puoi logorare gli avversari prima ancora di scendere
-              in campo:
+              Nella scheda <strong className="text-violet-300">Operazioni Coperte</strong> di ogni
+              nazione estera (anche in tempo di pace) puoi logorare gli avversari prima ancora di
+              scendere in campo:
             </p>
             <ul className="space-y-1 pl-4 list-disc text-slate-300 text-xs leading-relaxed">
               <li className="whitespace-normal">
@@ -588,11 +600,11 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
           </section>
         </div>
 
-        <div className="px-5 py-3.5 border-t border-slate-800 flex justify-end">
+        <div className="px-4 sm:px-5 pt-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] border-t border-slate-800 flex justify-end shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-md text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
+            className="min-h-[44px] px-6 py-2 rounded-lg text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
           >
             Ho Capito
           </button>
@@ -627,7 +639,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
       aria-label={isVictory ? 'Vittoria Strategica' : 'Sconfitta'}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4"
     >
-      <div className="w-full max-w-md bg-[#0D1524] border border-slate-700 rounded-xl shadow-2xl p-6 text-center space-y-4">
+      <div className="w-full max-w-md max-h-[88dvh] overflow-y-auto overscroll-contain bg-[#0D1524] border border-slate-700 rounded-xl shadow-2xl p-6 text-center space-y-4">
         <div className="flex justify-center">
           {isVictory ? (
             <Award className="w-12 h-12 text-amber-400" />
@@ -678,7 +690,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           <button
             type="button"
             onClick={onNewGame}
-            className="w-full py-2.5 px-4 rounded-md text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
+            className="w-full min-h-[44px] py-2.5 px-4 rounded-lg text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
           >
             Nuova Partita
           </button>
@@ -686,7 +698,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <button
               type="button"
               onClick={onContinueSandbox}
-              className="w-full py-2 px-4 rounded-md text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
+              className="w-full min-h-[44px] py-2 px-4 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
             >
               Continua verso la Conquista Totale ({owned}/{total})
             </button>

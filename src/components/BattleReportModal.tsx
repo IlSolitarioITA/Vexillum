@@ -42,24 +42,28 @@ export const BattleReportModal: React.FC<BattleReportModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Rapporto di Battaglia"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg bg-[#0D1524] border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden"
+        className="w-full sm:max-w-lg max-h-[86dvh] bg-[#0D1524] border-t sm:border border-slate-700/80 rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-          <div className="flex items-center gap-2">
+        <div className="sm:hidden flex justify-center pt-2 pb-0.5 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             {report.annexed ? (
-              <Award className="w-5 h-5 text-amber-400" />
+              <Award className="w-5 h-5 text-amber-400 shrink-0" />
             ) : report.outcome === 'defeat' ? (
-              <ShieldAlert className="w-5 h-5 text-rose-400" />
+              <ShieldAlert className="w-5 h-5 text-rose-400 shrink-0" />
             ) : (
-              <Swords className="w-5 h-5 text-cyan-400" />
+              <Swords className="w-5 h-5 text-cyan-400 shrink-0" />
             )}
-            <div>
-              <h2 className="font-display text-xl font-bold tracking-wide text-slate-50 leading-none">
+            <div className="min-w-0">
+              <h2 className="font-display text-xl font-bold tracking-wide text-slate-50 leading-none truncate">
                 Rapporto di Battaglia
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5 whitespace-normal">
@@ -72,13 +76,13 @@ export const BattleReportModal: React.FC<BattleReportModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Chiudi rapporto"
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800/80 sm:bg-transparent text-slate-200 sm:text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 pb-[max(2rem,env(safe-area-inset-bottom))] sm:pb-5 space-y-4">
           <div className="text-center space-y-1">
             <div className={`font-display text-2xl font-bold tracking-wide ${outcome.tone}`}>
               {report.annexed ? `Annessione di ${report.defenderName}` : outcome.text}
@@ -187,7 +191,7 @@ export const BattleReportModal: React.FC<BattleReportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2.5 px-4 rounded-md text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
+            className="w-full min-h-[46px] py-2.5 px-4 rounded-lg text-xs font-semibold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors cursor-pointer"
           >
             Torna alla Mappa Operativa
           </button>

@@ -25,7 +25,7 @@ jobs:
           java-version: 17
 
       - name: Install dependencies and build web assets
-        run: npm install && npm run build
+        run: npm install --legacy-peer-deps && npm run build
 
       - name: Initialize and sync Capacitor Android project
         run: |

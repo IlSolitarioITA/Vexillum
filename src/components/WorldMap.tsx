@@ -7,7 +7,13 @@ import worldAtlas from 'world-atlas/countries-110m.json';
 import { Crosshair, Globe, HeartHandshake, Minus, Plus, RotateCcw } from 'lucide-react';
 import { getScenarioBlocs } from '../data/scenarios';
 import { EXCLUDED_TERRITORY_IDS, resolveAtlasNationId } from '../data/worldCatalog';
-import { areAllied, areAtWar, getMilitaryRating, getRelation, getRelationLabel } from '../engine/helpers';
+import {
+  areAllied,
+  areAtWar,
+  getMilitaryRating,
+  getRelation,
+  getRelationLabel,
+} from '../engine/helpers';
 import { GameState, MapMode } from '../types/game';
 import { FlagBanner } from './FlagBanner';
 
@@ -19,12 +25,38 @@ interface WorldMapProps {
   onSelectNation: (nationId: string) => void;
 }
 
+interface MapTransform {
+  x: number; // world-space horizontal pan offset (wraps modulo WORLD_W)
+  y: number; // world-space vertical pan offset (clamped to poles)
+  k: number; // zoom scale factor
+}
+
+interface ActiveGesture {
+  startClientX: number;
+  startClientY: number;
+  panOriginX: number;
+  panOriginY: number;
+  panStartTx: number;
+  panStartTy: number;
+  moved: boolean;
+  isPinch: boolean;
+  tapNationId: string | null;
+  pinchStartDist: number;
+  pinchStartMidX: number;
+  pinchStartMidY: number;
+  pinchStartTx: number;
+  pinchStartTy: number;
+  pinchStartK: number;
+}
+
 const WORLD_W = 1200;
 const VIEW_WIDTH = 1200;
 const VIEW_HEIGHT = 640;
 const MIN_ZOOM = 1.0;
 const MAX_ZOOM = 7.0;
+const TAP_THRESHOLD_PX = 8;
 const TILE_OFFSETS = [-WORLD_W, 0, WORLD_W];
+const INITIAL_TRANSFORM: MapTransform = { x: 0, y: 12, k: 1.08 };
 
 function relationToFill(score: number): string {
   if (score >= 60) return '#059669';
@@ -36,10 +68,9 @@ function relationToFill(score: number): string {
   return '#881337';
 }
 
-function wrapHorizontal(x: number, k: number): number {
-  const period = WORLD_W * k;
-  if (period <= 0 || !Number.isFinite(x)) return 0;
-  return ((((x + period / 2) % period) + period) % period) - period / 2;
+function wrapHorizontalWorld(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  return ((((x + WORLD_W / 2) % WORLD_W) + WORLD_W) % WORLD_W) - WORLD_W / 2;
 }
 
 export const WorldMap: React.FC<WorldMapProps> = ({
@@ -50,18 +81,20 @@ export const WorldMap: React.FC<WorldMapProps> = ({
   onSelectNation,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [transform, setTransform] = useState({ x: 0, y: 12, k: 1.12 });
+  const svgSurfaceRef = useRef<HTMLDivElement | null>(null);
+
+  const [transform, setTransform] = useState<MapTransform>(INITIAL_TRANSFORM);
+  const transformRef = useRef<MapTransform>(INITIAL_TRANSFORM);
+
   const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(
-    null
-  );
-  const pinchDistRef = useRef<number | null>(null);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureRef = useRef<ActiveGesture | null>(null);
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [pointerPos, setPointerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Mercator projection scaled so [-180°, +180°] spans exactly WORLD_W pixels for seamless 360° tiling
-  const { features, graticulePath, projection } = useMemo(() => {
+  const { features, graticulePath, projection, mapBounds } = useMemo(() => {
     const topo = worldAtlas as unknown as Topology<{ countries: GeometryCollection }>;
     const fc = feature(topo, topo.objects.countries) as unknown as FeatureCollection<Geometry>;
 
@@ -71,48 +104,132 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
     const pathGen = geoPath(proj);
 
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
     const paths = fc.features
       .map((f: Feature<Geometry>) => {
         const rawName = String((f.properties as { name?: string } | null)?.name ?? '');
         const nationId = resolveAtlasNationId(f.id, rawName);
         if (EXCLUDED_TERRITORY_IDS.has(nationId)) return null;
+        const d = pathGen(f) ?? '';
+        if (!d) return null;
+        const b = pathGen.bounds(f);
+        if (Number.isFinite(b[0][1])) minY = Math.min(minY, b[0][1]);
+        if (Number.isFinite(b[1][1])) maxY = Math.max(maxY, b[1][1]);
         return {
           nationId,
           rawName,
-          d: pathGen(f) ?? '',
+          d,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null && x.d.length > 0);
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    const safeMinY = Number.isFinite(minY) ? Math.max(-135, minY) : -60;
+    const safeMaxY = Number.isFinite(maxY) ? Math.min(640, maxY) : 605;
 
     const grat = pathGen(geoGraticule10()) ?? '';
-    return { features: paths, graticulePath: grat, projection: proj };
-  }, []);
-
-  // Seamless 360° horizontal wrap + comfortable vertical pole clamp
-  const normalizeTransform = useCallback((x: number, y: number, k: number) => {
-    const clampedK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
-    const maxPanY = Math.max(120, (VIEW_HEIGHT * (clampedK - 0.55)) / 2);
     return {
-      k: clampedK,
-      x: wrapHorizontal(x, clampedK),
-      y: Math.max(-maxPanY, Math.min(maxPanY, y)),
+      features: paths,
+      graticulePath: grat,
+      projection: proj,
+      mapBounds: { minY: safeMinY, maxY: safeMaxY },
     };
   }, []);
 
-  const zoomBy = useCallback(
-    (factor: number) => {
-      setTransform((prev) => {
-        const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.k * factor));
-        const ratio = nextK / prev.k;
-        return normalizeTransform(prev.x * ratio, prev.y * ratio, nextK);
-      });
+  // Measure exact SVG-unit-to-CSS-pixel ratio matching preserveAspectRatio="xMidYMid slice"
+  const getSvgMetrics = useCallback(() => {
+    const rect = svgSurfaceRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return {
+        rect: null,
+        svgPixelsPerUnit: 1,
+        visibleSvgW: VIEW_WIDTH,
+        visibleSvgH: VIEW_HEIGHT,
+      };
+    }
+    const svgPixelsPerUnit = Math.max(rect.width / VIEW_WIDTH, rect.height / VIEW_HEIGHT);
+    return {
+      rect,
+      svgPixelsPerUnit,
+      visibleSvgW: rect.width / svgPixelsPerUnit,
+      visibleSvgH: rect.height / svgPixelsPerUnit,
+    };
+  }, []);
+
+  // Seamless 360° horizontal wrap + strict North/South pole clamp
+  const normalizeTransform = useCallback(
+    (x: number, y: number, k: number): MapTransform => {
+      const clampedK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
+      const { visibleSvgH } = getSvgMetrics();
+      const visibleWorldH = visibleSvgH / clampedK;
+
+      const padY = 28;
+      const topLimit = mapBounds.minY - padY;
+      const bottomLimit = mapBounds.maxY + padY;
+      const worldSpanY = bottomLimit - topLimit;
+
+      let clampedY: number;
+      if (visibleWorldH >= worldSpanY) {
+        // Entire north-south span fits on screen: center cleanly between poles
+        clampedY = VIEW_HEIGHT / 2 - (topLimit + bottomLimit) / 2;
+      } else {
+        const maxY = VIEW_HEIGHT / 2 - visibleWorldH / 2 - topLimit;
+        const minY = VIEW_HEIGHT / 2 + visibleWorldH / 2 - bottomLimit;
+        clampedY = Math.max(minY, Math.min(maxY, y));
+      }
+
+      return {
+        k: clampedK,
+        x: wrapHorizontalWorld(x),
+        y: clampedY,
+      };
+    },
+    [getSvgMetrics, mapBounds.minY, mapBounds.maxY]
+  );
+
+  const commitTransform = useCallback(
+    (next: MapTransform) => {
+      const normalized = normalizeTransform(next.x, next.y, next.k);
+      transformRef.current = normalized;
+      setTransform(normalized);
     },
     [normalizeTransform]
   );
 
+  // Re-clamp on viewport resize / orientation change
+  useEffect(() => {
+    const onResize = () => {
+      const cur = transformRef.current;
+      commitTransform(cur);
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [commitTransform]);
+
+  const zoomAtPoint = useCallback(
+    (factor: number, clientX?: number, clientY?: number) => {
+      const cur = transformRef.current;
+      const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cur.k * factor));
+      if (nextK === cur.k) return;
+
+      const { rect, svgPixelsPerUnit } = getSvgMetrics();
+      if (rect && typeof clientX === 'number' && typeof clientY === 'number') {
+        const relSvgX = (clientX - (rect.left + rect.width / 2)) / svgPixelsPerUnit;
+        const relSvgY = (clientY - (rect.top + rect.height / 2)) / svgPixelsPerUnit;
+        const nextX = cur.x + relSvgX * (1 / nextK - 1 / cur.k);
+        const nextY = cur.y + relSvgY * (1 / nextK - 1 / cur.k);
+        commitTransform({ x: nextX, y: nextY, k: nextK });
+      } else {
+        commitTransform({ x: cur.x, y: cur.y, k: nextK });
+      }
+    },
+    [getSvgMetrics, commitTransform]
+  );
+
   const resetView = useCallback(() => {
-    setTransform({ x: 0, y: 12, k: 1.12 });
-  }, []);
+    commitTransform(INITIAL_TRANSFORM);
+  }, [commitTransform]);
 
   const focusNation = useCallback(
     (nationId: string) => {
@@ -121,116 +238,236 @@ export const WorldMap: React.FC<WorldMapProps> = ({
       const coords = projection(nation.capitalCoords);
       if (!coords) return;
       const targetK = 2.4;
-      const dx = (VIEW_WIDTH / 2 - coords[0]) * targetK;
-      const dy = (VIEW_HEIGHT / 2 - coords[1]) * targetK;
-      setTransform(normalizeTransform(dx, dy, targetK));
+      commitTransform({
+        x: VIEW_WIDTH / 2 - coords[0],
+        y: VIEW_HEIGHT / 2 - coords[1],
+        k: targetK,
+      });
     },
-    [gameState.nations, projection, normalizeTransform]
+    [gameState.nations, projection, commitTransform]
   );
 
+  // Non-passive wheel zoom on SVG surface only
   useEffect(() => {
-    const el = containerRef.current;
+    const el = svgSurfaceRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.18 : 0.85;
-      zoomBy(factor);
+      zoomAtPoint(factor, e.clientX, e.clientY);
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [zoomBy]);
+  }, [zoomAtPoint]);
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      tx: transform.x,
-      ty: transform.y,
-      moved: false,
+  const startPinchFromPointers = useCallback(() => {
+    const pts = Array.from(activePointersRef.current.values());
+    if (pts.length < 2) return;
+    const [p1, p2] = pts;
+    const dist = Math.max(1, Math.hypot(p1.x - p2.x, p1.y - p2.y));
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const cur = transformRef.current;
+
+    gestureRef.current = {
+      startClientX: midX,
+      startClientY: midY,
+      panOriginX: midX,
+      panOriginY: midY,
+      panStartTx: cur.x,
+      panStartTy: cur.y,
+      moved: true,
+      isPinch: true,
+      tapNationId: null,
+      pinchStartDist: dist,
+      pinchStartMidX: midX,
+      pinchStartMidY: midY,
+      pinchStartTx: cur.x,
+      pinchStartTy: cur.y,
+      pinchStartK: cur.k,
     };
-  };
+    setIsDragging(true);
+  }, []);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      setPointerPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-    }
-    const drag = dragStartRef.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-      drag.moved = true;
-    }
-    const scaleFactor = rect ? VIEW_WIDTH / Math.max(1, rect.width) : 1;
-    const nextX = drag.tx + dx * scaleFactor;
-    const nextY = drag.ty + dy * scaleFactor;
-    setTransform((prev) => normalizeTransform(nextX, nextY, prev.k));
-  };
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    const currentDrag = dragStartRef.current;
-    setTimeout(() => {
-      if (dragStartRef.current === currentDrag) {
-        dragStartRef.current = null;
-      }
-    }, 0);
-  };
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      dragStartRef.current = {
-        x: t.clientX,
-        y: t.clientY,
-        tx: transform.x,
-        ty: transform.y,
+    if (activePointersRef.current.size === 1) {
+      const targetEl = (e.target as Element | null)?.closest('[data-nation-id]');
+      const tapNationId = targetEl?.getAttribute('data-nation-id') ?? null;
+      const cur = transformRef.current;
+
+      gestureRef.current = {
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        panOriginX: e.clientX,
+        panOriginY: e.clientY,
+        panStartTx: cur.x,
+        panStartTy: cur.y,
         moved: false,
+        isPinch: false,
+        tapNationId,
+        pinchStartDist: 1,
+        pinchStartMidX: e.clientX,
+        pinchStartMidY: e.clientY,
+        pinchStartTx: cur.x,
+        pinchStartTy: cur.y,
+        pinchStartK: cur.k,
       };
-      pinchDistRef.current = null;
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      pinchDistRef.current = Math.hypot(dx, dy);
-      dragStartRef.current = null;
+    } else if (activePointersRef.current.size === 2) {
+      startPinchFromPointers();
     }
   };
 
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    const drag = dragStartRef.current;
-    if (e.touches.length === 1 && drag) {
-      const t = e.touches[0];
-      const dx = t.clientX - drag.x;
-      const dy = t.clientY - drag.y;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-        drag.moved = true;
-      }
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Update desktop hover card position
+    if (e.pointerType === 'mouse') {
       const rect = containerRef.current?.getBoundingClientRect();
-      const scaleFactor = rect ? VIEW_WIDTH / Math.max(1, rect.width) : 1;
-      const nextX = drag.tx + dx * scaleFactor;
-      const nextY = drag.ty + dy * scaleFactor;
-      setTransform((prev) => normalizeTransform(nextX, nextY, prev.k));
-    } else if (e.touches.length === 2 && pinchDistRef.current !== null) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const nextDist = Math.hypot(dx, dy);
-      const ratio = nextDist / Math.max(1, pinchDistRef.current);
-      pinchDistRef.current = nextDist;
-      zoomBy(ratio);
+      if (rect) {
+        setPointerPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }
+    }
+
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const gesture = gestureRef.current;
+    if (!gesture) return;
+
+    const { rect, svgPixelsPerUnit } = getSvgMetrics();
+
+    // 2-finger pinch-zoom + pan
+    if (activePointersRef.current.size >= 2) {
+      if (!gesture.isPinch) {
+        startPinchFromPointers();
+        return;
+      }
+      const pts = Array.from(activePointersRef.current.values());
+      const [p1, p2] = pts;
+      const nextDist = Math.max(1, Math.hypot(p1.x - p2.x, p1.y - p2.y));
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      const scaleRatio = nextDist / Math.max(1, gesture.pinchStartDist);
+      const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, gesture.pinchStartK * scaleRatio));
+
+      if (rect) {
+        const centerClientX = rect.left + rect.width / 2;
+        const centerClientY = rect.top + rect.height / 2;
+        const relStartSvgX = (gesture.pinchStartMidX - centerClientX) / svgPixelsPerUnit;
+        const relStartSvgY = (gesture.pinchStartMidY - centerClientY) / svgPixelsPerUnit;
+        const relNowSvgX = (midX - centerClientX) / svgPixelsPerUnit;
+        const relNowSvgY = (midY - centerClientY) / svgPixelsPerUnit;
+
+        const nextX =
+          gesture.pinchStartTx + relNowSvgX / nextK - relStartSvgX / gesture.pinchStartK;
+        const nextY =
+          gesture.pinchStartTy + relNowSvgY / nextK - relStartSvgY / gesture.pinchStartK;
+        commitTransform({ x: nextX, y: nextY, k: nextK });
+      } else {
+        commitTransform({ x: gesture.pinchStartTx, y: gesture.pinchStartTy, k: nextK });
+      }
+      return;
+    }
+
+    // Single-pointer drag vs tap (< 8px threshold)
+    if (activePointersRef.current.size === 1) {
+      const totalDx = e.clientX - gesture.startClientX;
+      const totalDy = e.clientY - gesture.startClientY;
+
+      if (!gesture.moved) {
+        if (Math.hypot(totalDx, totalDy) < TAP_THRESHOLD_PX) {
+          return;
+        }
+        // Crossed 8px threshold: transition cleanly into drag without any visual jump
+        gesture.moved = true;
+        gesture.panOriginX = e.clientX;
+        gesture.panOriginY = e.clientY;
+        gesture.panStartTx = transformRef.current.x;
+        gesture.panStartTy = transformRef.current.y;
+        setIsDragging(true);
+        setHoveredId(null);
+        try {
+          svgSurfaceRef.current?.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore if capture is unsupported
+        }
+        return;
+      }
+
+      // 1:1 finger tracking: divide pointer delta by (svgPixelsPerUnit * currentZoom)
+      const currentK = transformRef.current.k;
+      const denom = Math.max(0.0001, svgPixelsPerUnit * currentK);
+      const dx = e.clientX - gesture.panOriginX;
+      const dy = e.clientY - gesture.panOriginY;
+
+      commitTransform({
+        x: gesture.panStartTx + dx / denom,
+        y: gesture.panStartTy + dy / denom,
+        k: currentK,
+      });
     }
   };
 
-  const handleTouchEnd = () => {
-    pinchDistRef.current = null;
-    const currentDrag = dragStartRef.current;
-    setTimeout(() => {
-      if (dragStartRef.current === currentDrag) {
-        dragStartRef.current = null;
+  const handlePointerEnd = (e: React.PointerEvent<HTMLDivElement>, isCancel: boolean) => {
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    activePointersRef.current.delete(e.pointerId);
+
+    try {
+      if (svgSurfaceRef.current?.hasPointerCapture(e.pointerId)) {
+        svgSurfaceRef.current.releasePointerCapture(e.pointerId);
       }
-    }, 0);
+    } catch {
+      // Ignore capture release errors
+    }
+
+    const gesture = gestureRef.current;
+
+    // Transition smoothly from 2-finger pinch down to 1-finger pan without triggering a tap
+    if (activePointersRef.current.size === 1) {
+      const remaining = Array.from(activePointersRef.current.values())[0];
+      const cur = transformRef.current;
+      gestureRef.current = {
+        startClientX: remaining.x,
+        startClientY: remaining.y,
+        panOriginX: remaining.x,
+        panOriginY: remaining.y,
+        panStartTx: cur.x,
+        panStartTy: cur.y,
+        moved: true,
+        isPinch: false,
+        tapNationId: null,
+        pinchStartDist: 1,
+        pinchStartMidX: remaining.x,
+        pinchStartMidY: remaining.y,
+        pinchStartTx: cur.x,
+        pinchStartTy: cur.y,
+        pinchStartK: cur.k,
+      };
+      return;
+    }
+
+    // All pointers lifted
+    if (activePointersRef.current.size === 0) {
+      const shouldSelectTap =
+        !isCancel &&
+        gesture !== null &&
+        !gesture.moved &&
+        !gesture.isPinch &&
+        gesture.tapNationId !== null &&
+        Boolean(gameState.nations[gesture.tapNationId]);
+
+      const tappedId = shouldSelectTap ? gesture!.tapNationId : null;
+
+      gestureRef.current = null;
+      setIsDragging(false);
+
+      if (tappedId) {
+        onSelectNation(tappedId);
+      }
+    }
   };
 
   const warringSet = useMemo(() => {
@@ -293,7 +530,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     if (warringSet.has(ownerId)) {
       return { stroke: '#F59E0B', width: 1.0 / scaleDiv, pulsing: true };
     }
-    // Crisp high-contrast hairline border for dark neutral countries
     return { stroke: '#526784', width: 0.72 / scaleDiv, pulsing: false };
   };
 
@@ -308,7 +544,6 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         const p2Raw = projection(def.capitalCoords);
         if (!p1 || !p2Raw) return null;
 
-        // Choose shortest horizontal wrap across 360° globe
         let targetX = p2Raw[0];
         if (targetX - p1[0] > WORLD_W / 2) targetX -= WORLD_W;
         if (targetX - p1[0] < -WORLD_W / 2) targetX += WORLD_W;
@@ -345,214 +580,217 @@ export const WorldMap: React.FC<WorldMapProps> = ({
   const hoveredNation = hoveredId ? gameState.nations[hoveredId] : null;
   const hoveredOwner = hoveredNation ? gameState.nations[hoveredNation.ownerId] : null;
 
-  const svgTransform = `translate(${VIEW_WIDTH / 2 + transform.x}, ${VIEW_HEIGHT / 2 + transform.y}) scale(${transform.k}) translate(${-VIEW_WIDTH / 2}, ${-VIEW_HEIGHT / 2})`;
+  // World-space transform: pan (x, y) is scaled by k around viewport center for exact 1:1 tracking
+  const svgTransform = `translate(${VIEW_WIDTH / 2}, ${VIEW_HEIGHT / 2}) scale(${transform.k}) translate(${-VIEW_WIDTH / 2 + transform.x}, ${-VIEW_HEIGHT / 2 + transform.y})`;
 
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={() => {
-        handleMouseUp();
-        setHoveredId(null);
-      }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      className={`relative w-full h-full overflow-hidden select-none bg-[#070D17] ${
-        isDragging ? 'cursor-grabbing' : 'cursor-grab'
-      }`}
-    >
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-[#070D17]">
+      {/* Isolated touch-none + select-none gesture surface ONLY on the interactive SVG container */}
       <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(14,116,144,0.12)_0%,rgba(7,13,23,0.92)_74%)]"
-      />
-
-      <svg
-        viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-        preserveAspectRatio="xMidYMid slice"
-        className="w-full h-full block"
+        ref={svgSurfaceRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={(e) => handlePointerEnd(e, false)}
+        onPointerCancel={(e) => handlePointerEnd(e, true)}
+        onPointerLeave={(e) => {
+          if (e.pointerType === 'mouse') {
+            setHoveredId(null);
+          }
+        }}
+        className={`w-full h-full touch-none select-none ${
+          isDragging ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
       >
-        <defs>
-          <marker
-            id="war-arrow-player"
-            viewBox="0 0 10 10"
-            refX="7"
-            refY="5"
-            markerWidth="5.5"
-            markerHeight="5.5"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1 L 9 5 L 0 9 z" fill="#FB7185" />
-          </marker>
-          <marker
-            id="war-arrow-ai"
-            viewBox="0 0 10 10"
-            refX="7"
-            refY="5"
-            markerWidth="5"
-            markerHeight="5"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1 L 9 5 L 0 9 z" fill="#F59E0B" />
-          </marker>
-          <pattern
-            id="annexed-hatch"
-            width="6"
-            height="6"
-            patternTransform="rotate(45 0 0)"
-            patternUnits="userSpaceOnUse"
-          >
-            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
-          </pattern>
-        </defs>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(14,116,144,0.12)_0%,rgba(7,13,23,0.92)_74%)]"
+        />
 
-        {/* 3 seamlessly tiled horizontal copies for continuous 360° navigation */}
-        <g transform={svgTransform}>
-          {TILE_OFFSETS.map((offsetX) => (
-            <g key={offsetX} transform={`translate(${offsetX}, 0)`}>
-              {/* Graticule grid */}
-              <path
-                d={graticulePath}
-                fill="none"
-                stroke="#182A44"
-                strokeWidth={0.5 / Math.sqrt(transform.k)}
-                strokeOpacity={0.72}
-              />
+        <svg
+          viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
+          preserveAspectRatio="xMidYMid slice"
+          className="w-full h-full block"
+        >
+          <defs>
+            <marker
+              id="war-arrow-player"
+              viewBox="0 0 10 10"
+              refX="7"
+              refY="5"
+              markerWidth="5.5"
+              markerHeight="5.5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="#FB7185" />
+            </marker>
+            <marker
+              id="war-arrow-ai"
+              viewBox="0 0 10 10"
+              refX="7"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="#F59E0B" />
+            </marker>
+            <pattern
+              id="annexed-hatch"
+              width="6"
+              height="6"
+              patternTransform="rotate(45 0 0)"
+              patternUnits="userSpaceOnUse"
+            >
+              <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
+            </pattern>
+          </defs>
 
-              {/* All 175 Playable Countries */}
-              {features.map((feat, idx) => {
-                const nation = gameState.nations[feat.nationId];
-                const isOccupied = Boolean(nation && nation.ownerId !== nation.id);
-                const fill = getNationFill(feat.nationId);
-                const { stroke, width, pulsing } = getNationStroke(feat.nationId);
+          {/* 3 seamlessly tiled horizontal copies (-WORLD_W, 0, +WORLD_W) for continuous 360° navigation */}
+          <g transform={svgTransform}>
+            {TILE_OFFSETS.map((offsetX) => (
+              <g key={offsetX} transform={`translate(${offsetX}, 0)`}>
+                {/* Graticule grid */}
+                <path
+                  d={graticulePath}
+                  fill="none"
+                  stroke="#182A44"
+                  strokeWidth={0.5 / Math.sqrt(transform.k)}
+                  strokeOpacity={0.72}
+                />
 
-                return (
-                  <g key={`${offsetX}_${feat.nationId}_${idx}`}>
-                    <path
-                      d={feat.d}
-                      fill={fill}
-                      stroke={stroke}
-                      strokeWidth={width}
-                      strokeLinejoin="round"
-                      className={`cursor-pointer transition-opacity duration-150 hover:brightness-125 ${
-                        pulsing ? 'animate-war-border' : ''
-                      }`}
-                      onMouseEnter={() => setHoveredId(feat.nationId)}
-                      onMouseLeave={() => {
-                        if (hoveredId === feat.nationId) setHoveredId(null);
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (dragStartRef.current?.moved) return;
-                        if (nation) {
-                          onSelectNation(feat.nationId);
+                {/* All Playable Countries */}
+                {features.map((feat, idx) => {
+                  const nation = gameState.nations[feat.nationId];
+                  const isOccupied = Boolean(nation && nation.ownerId !== nation.id);
+                  const fill = getNationFill(feat.nationId);
+                  const { stroke, width, pulsing } = getNationStroke(feat.nationId);
+
+                  return (
+                    <g key={`${offsetX}_${feat.nationId}_${idx}`}>
+                      <path
+                        data-nation-id={feat.nationId}
+                        d={feat.d}
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={width}
+                        strokeLinejoin="round"
+                        className={`cursor-pointer transition-opacity duration-150 hover:brightness-125 ${
+                          pulsing ? 'animate-war-border' : ''
+                        }`}
+                        onPointerEnter={(e) => {
+                          if (e.pointerType === 'mouse' && !isDragging) {
+                            setHoveredId(feat.nationId);
+                          }
+                        }}
+                        onPointerLeave={(e) => {
+                          if (e.pointerType === 'mouse' && hoveredId === feat.nationId) {
+                            setHoveredId(null);
+                          }
+                        }}
+                      />
+                      {isOccupied && (
+                        <path d={feat.d} fill="url(#annexed-hatch)" className="pointer-events-none" />
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* Capital anchor for Player Nation */}
+                {playerCapitalCoords && (
+                  <g className="pointer-events-none">
+                    <circle
+                      cx={playerCapitalCoords[0]}
+                      cy={playerCapitalCoords[1]}
+                      r={6.4 / Math.sqrt(transform.k)}
+                      fill="none"
+                      stroke="#F59E0B"
+                      strokeWidth={1.0 / Math.sqrt(transform.k)}
+                      opacity={0.85}
+                    />
+                    <circle
+                      cx={playerCapitalCoords[0]}
+                      cy={playerCapitalCoords[1]}
+                      r={3.2 / Math.sqrt(transform.k)}
+                      fill="#F59E0B"
+                    />
+                  </g>
+                )}
+
+                {/* Animated Conflict Arrows */}
+                {warArcs.map((arc) => {
+                  const strokeW = (arc.involvesPlayer ? 2.1 : 1.45) / Math.sqrt(transform.k);
+                  const color = arc.involvesPlayer ? '#FB7185' : '#F59E0B';
+                  return (
+                    <g key={`${offsetX}_${arc.war.id}`} className="pointer-events-none">
+                      <path
+                        d={arc.d}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={strokeW * 2.2}
+                        strokeOpacity={0.2}
+                      />
+                      <path
+                        d={arc.d}
+                        fill="none"
+                        stroke={color}
+                        strokeWidth={strokeW}
+                        strokeDasharray="6 4"
+                        className="animate-war-dash"
+                        markerEnd={
+                          arc.involvesPlayer ? 'url(#war-arrow-player)' : 'url(#war-arrow-ai)'
                         }
-                      }}
-                    />
-                    {isOccupied && (
-                      <path d={feat.d} fill="url(#annexed-hatch)" className="pointer-events-none" />
-                    )}
-                  </g>
-                );
-              })}
+                      />
+                      <circle
+                        cx={arc.p1[0]}
+                        cy={arc.p1[1]}
+                        r={2.5 / Math.sqrt(transform.k)}
+                        fill={color}
+                      />
+                      <circle
+                        cx={arc.p2[0]}
+                        cy={arc.p2[1]}
+                        r={2.5 / Math.sqrt(transform.k)}
+                        fill={color}
+                      />
+                    </g>
+                  );
+                })}
+              </g>
+            ))}
+          </g>
+        </svg>
+      </div>
 
-              {/* Capital anchor for Player Nation */}
-              {playerCapitalCoords && (
-                <g className="pointer-events-none">
-                  <circle
-                    cx={playerCapitalCoords[0]}
-                    cy={playerCapitalCoords[1]}
-                    r={6.4 / Math.sqrt(transform.k)}
-                    fill="none"
-                    stroke="#F59E0B"
-                    strokeWidth={1.0 / Math.sqrt(transform.k)}
-                    opacity={0.85}
-                  />
-                  <circle
-                    cx={playerCapitalCoords[0]}
-                    cy={playerCapitalCoords[1]}
-                    r={3.2 / Math.sqrt(transform.k)}
-                    fill="#F59E0B"
-                  />
-                </g>
-              )}
-
-              {/* Animated Conflict Arrows */}
-              {warArcs.map((arc) => {
-                const strokeW = (arc.involvesPlayer ? 2.1 : 1.45) / Math.sqrt(transform.k);
-                const color = arc.involvesPlayer ? '#FB7185' : '#F59E0B';
-                return (
-                  <g key={`${offsetX}_${arc.war.id}`} className="pointer-events-none">
-                    <path
-                      d={arc.d}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={strokeW * 2.2}
-                      strokeOpacity={0.2}
-                    />
-                    <path
-                      d={arc.d}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={strokeW}
-                      strokeDasharray="6 4"
-                      className="animate-war-dash"
-                      markerEnd={
-                        arc.involvesPlayer ? 'url(#war-arrow-player)' : 'url(#war-arrow-ai)'
-                      }
-                    />
-                    <circle
-                      cx={arc.p1[0]}
-                      cy={arc.p1[1]}
-                      r={2.5 / Math.sqrt(transform.k)}
-                      fill={color}
-                    />
-                    <circle
-                      cx={arc.p2[0]}
-                      cy={arc.p2[1]}
-                      r={2.5 / Math.sqrt(transform.k)}
-                      fill={color}
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          ))}
-        </g>
-      </svg>
-
-      {/* Top-Left Map Mode Switch & Legend */}
+      {/* Top-Left Compact View Mode Switch (Politica / Relazioni) + Desktop Legend */}
       <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-auto">
-        <div className="inline-flex items-center p-1 rounded-lg bg-[#0F172A]/92 backdrop-blur-md border border-slate-700/70 shadow-lg">
+        <div className="inline-flex items-center p-1 rounded-lg bg-[#0F172A]/92 backdrop-blur-md border border-slate-700/75 shadow-lg">
           <button
             type="button"
             onClick={() => onMapModeChange('political')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`min-h-[36px] flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               mapMode === 'political'
                 ? 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/40'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Globe className="w-3.5 h-3.5" />
+            <Globe className="w-3.5 h-3.5 shrink-0" />
             <span>Politica</span>
           </button>
           <button
             type="button"
             onClick={() => onMapModeChange('relations')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`min-h-[36px] flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               mapMode === 'relations'
                 ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <HeartHandshake className="w-3.5 h-3.5" />
+            <HeartHandshake className="w-3.5 h-3.5 shrink-0" />
             <span>Relazioni</span>
           </button>
         </div>
 
-        <div className="hidden sm:flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#0F172A]/85 backdrop-blur-md border border-slate-800/80 text-[11px] text-slate-300">
+        <div className="hidden md:flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#0F172A]/85 backdrop-blur-md border border-slate-800/80 text-[11px] text-slate-300">
           {mapMode === 'political' ? (
             <>
               <span className="flex items-center gap-1.5 whitespace-nowrap">
@@ -595,32 +833,37 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         </div>
       </div>
 
-      {/* Bottom-Left Zoom Controls (positioned above NewsFeedBar) */}
-      <div className="absolute bottom-20 sm:bottom-16 left-3 z-10 flex flex-col gap-1 bg-[#0F172A]/92 backdrop-blur-md border border-slate-700/70 rounded-lg p-1 shadow-lg">
+      {/* Right-Side Compact Zoom Controls (+ / - / Centra / Reset) */}
+      <div
+        className={`absolute bottom-4 right-3 z-10 flex flex-col gap-1 bg-[#0F172A]/92 backdrop-blur-md border border-slate-700/75 rounded-lg p-1 shadow-lg transition-all duration-200 ${
+          selectedNationId ? 'md:right-[432px]' : 'md:right-4'
+        }`}
+      >
         <button
           type="button"
-          onClick={() => zoomBy(1.32)}
+          onClick={() => zoomAtPoint(1.32)}
           title="Ingrandisci"
           aria-label="Ingrandisci mappa"
-          className="w-9 h-9 flex items-center justify-center rounded-md text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+          className="w-10 h-10 flex items-center justify-center rounded-md text-slate-200 hover:bg-slate-800 active:bg-slate-700 transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
         </button>
         <button
           type="button"
-          onClick={() => zoomBy(0.76)}
+          onClick={() => zoomAtPoint(0.76)}
           title="Riduci"
           aria-label="Riduci mappa"
-          className="w-9 h-9 flex items-center justify-center rounded-md text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+          className="w-10 h-10 flex items-center justify-center rounded-md text-slate-200 hover:bg-slate-800 active:bg-slate-700 transition-colors cursor-pointer"
         >
           <Minus className="w-4 h-4" />
         </button>
+        <div aria-hidden="true" className="h-px bg-slate-800 mx-1" />
         <button
           type="button"
           onClick={() => focusNation(gameState.playerId)}
           title="Centra sulla tua nazione"
           aria-label="Centra sulla tua nazione"
-          className="w-9 h-9 flex items-center justify-center rounded-md text-cyan-300 hover:bg-slate-800 transition-colors cursor-pointer"
+          className="w-10 h-10 flex items-center justify-center rounded-md text-cyan-300 hover:bg-slate-800 active:bg-slate-700 transition-colors cursor-pointer"
         >
           <Crosshair className="w-4 h-4" />
         </button>
@@ -629,13 +872,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
           onClick={resetView}
           title="Ripristina vista globale 360°"
           aria-label="Ripristina vista globale"
-          className="w-9 h-9 flex items-center justify-center rounded-md text-slate-300 hover:bg-slate-800 transition-colors cursor-pointer"
+          className="w-10 h-10 flex items-center justify-center rounded-md text-slate-300 hover:bg-slate-800 active:bg-slate-700 transition-colors cursor-pointer"
         >
           <RotateCcw className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Cursor-following hover intelligence card (Desktop) */}
+      {/* Cursor-following hover intelligence card (Desktop mouse only) */}
       {hoveredNation && hoveredOwner && !isDragging && (
         <div
           style={{

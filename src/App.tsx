@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { BattleReportModal } from './components/BattleReportModal';
 import { MilitaryTechModal } from './components/MilitaryTechModal';
+import { MobileBottomDock } from './components/MobileBottomDock';
 import { NationPanel } from './components/NationPanel';
 import { NationSelectScreen } from './components/NationSelectScreen';
 import { NewsFeedBar } from './components/NewsFeedBar';
@@ -60,6 +60,7 @@ export default function App() {
   const [selectedNationId, setSelectedNationId] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<MapMode>('political');
   const [militaryOpen, setMilitaryOpen] = useState(false);
+  const [newsOpen, setNewsOpen] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);
@@ -94,6 +95,7 @@ export default function App() {
         else if (helpOpen) setHelpOpen(false);
         else if (saveModalOpen) setSaveModalOpen(false);
         else if (militaryOpen) setMilitaryOpen(false);
+        else if (newsOpen) setNewsOpen(false);
         else if (gameState?.lastBattleReport) {
           setGameState((prev) => (prev ? { ...prev, lastBattleReport: null } : prev));
         } else if (selectedNationId) {
@@ -103,7 +105,15 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [privacyOpen, helpOpen, saveModalOpen, militaryOpen, gameState?.lastBattleReport, selectedNationId]);
+  }, [
+    privacyOpen,
+    helpOpen,
+    saveModalOpen,
+    militaryOpen,
+    newsOpen,
+    gameState?.lastBattleReport,
+    selectedNationId,
+  ]);
 
   const showPanelMsg = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
     setPanelFeedback({ text, tone });
@@ -120,7 +130,11 @@ export default function App() {
       setGameState(fresh);
       saveToSlot(slotId, fresh);
       setSaveSlots(listSaveSlots());
-      setSelectedNationId(fresh.playerId);
+      // Keep the map completely unobstructed on mobile launch; pre-open player drawer on desktop
+      setSelectedNationId(window.innerWidth >= 768 ? fresh.playerId : null);
+      setNewsOpen(false);
+      setMilitaryOpen(false);
+      setHelpOpen(false);
       setPanelFeedback(null);
       setMilitaryFeedback(null);
       setScreen('play');
@@ -135,6 +149,8 @@ export default function App() {
     setActiveSlotId(slotId);
     setGameState(loaded);
     setSelectedNationId(null);
+    setNewsOpen(false);
+    setMilitaryOpen(false);
     setPanelFeedback(null);
     setMilitaryFeedback(null);
     setSaveModalOpen(false);
@@ -167,6 +183,7 @@ export default function App() {
     setActiveSlotId('slot_1');
     setGameState(null);
     setSelectedNationId(null);
+    setNewsOpen(false);
     setSaveModalOpen(false);
     setScreen('select');
   }, [refreshSlots]);
@@ -396,6 +413,7 @@ export default function App() {
 
   return (
     <div className="h-[100dvh] w-screen overflow-hidden flex flex-col bg-[#080E18] text-slate-100">
+      {/* ZONE 1: Compact Non-Overlapping Top Header (shrink-0) */}
       <TopBar
         gameState={gameState}
         soundMuted={soundMuted}
@@ -403,23 +421,30 @@ export default function App() {
         onNextTurn={handleNextTurn}
         onOpenMilitary={() => {
           setMilitaryFeedback(null);
+          setNewsOpen(false);
           setMilitaryOpen(true);
         }}
         onOpenSaveModal={() => {
           refreshSlots();
           setSaveModalOpen(true);
         }}
-        onOpenHelp={() => setHelpOpen(true)}
+        onOpenHelp={() => {
+          setNewsOpen(false);
+          setHelpOpen(true);
+        }}
         onOpenPrivacy={() => setPrivacyOpen(true)}
         onGoToMenu={() => {
           refreshSlots();
           setScreen('select');
         }}
-        onSelectPlayerNation={() => handleSelectNation(gameState.playerId)}
+        onSelectPlayerNation={() => {
+          setNewsOpen(false);
+          handleSelectNation(gameState.playerId);
+        }}
       />
 
-      {/* Full-screen 360° Interactive Map Canvas */}
-      <main className="relative flex-1 min-h-0 w-full">
+      {/* ZONE 2: Central 360° Interactive Map Area (flex-1 relative overflow-hidden) */}
+      <main className="relative flex-1 min-h-0 w-full overflow-hidden">
         <WorldMap
           gameState={gameState}
           selectedNationId={selectedNationId}
@@ -428,20 +453,7 @@ export default function App() {
           onSelectNation={handleSelectNation}
         />
 
-        {/* Mobile Always-Accessible Floating "Prossimo Turno" CTA (zero topbar crowding) */}
-        {!selectedNationId && (
-          <button
-            type="button"
-            onClick={handleNextTurn}
-            disabled={gameState.status !== 'playing'}
-            className="md:hidden fixed safe-bottom-float right-3 z-20 flex items-center gap-1.5 px-4 py-3 rounded-lg text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 shadow-xl ring-1 ring-amber-200/40 transition-colors whitespace-nowrap cursor-pointer"
-          >
-            <span>Prossimo Turno</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Contextual Nation Drawer / Bottom Sheet */}
+        {/* Contextual Nation Drawer (Desktop right panel / Mobile bottom sheet) */}
         <NationPanel
           gameState={gameState}
           nationId={selectedNationId}
@@ -463,8 +475,39 @@ export default function App() {
         />
       </main>
 
-      {/* Bottom Geopolitical News Feed (un-truncated) */}
-      <NewsFeedBar news={gameState.news} onSelectNation={handleSelectNation} />
+      {/* ZONE 3 (Desktop): In-flow News Feed Bar + (Mobile): Dedicated Cronaca Sheet */}
+      <NewsFeedBar
+        news={gameState.news}
+        open={newsOpen}
+        onOpenChange={setNewsOpen}
+        onSelectNation={handleSelectNation}
+      />
+
+      {/* ZONE 3 (Mobile): Fixed-in-flow Bottom Dock (Esercito, Cronaca, Guida + Prossimo Turno) */}
+      <MobileBottomDock
+        canAdvanceTurn={gameState.status === 'playing'}
+        newsCount={gameState.news.length}
+        militaryOpen={militaryOpen}
+        newsOpen={newsOpen}
+        helpOpen={helpOpen}
+        onOpenMilitary={() => {
+          setMilitaryFeedback(null);
+          setNewsOpen(false);
+          setHelpOpen(false);
+          setMilitaryOpen(true);
+        }}
+        onToggleNews={() => {
+          setMilitaryOpen(false);
+          setHelpOpen(false);
+          setNewsOpen((prev) => !prev);
+        }}
+        onOpenHelp={() => {
+          setMilitaryOpen(false);
+          setNewsOpen(false);
+          setHelpOpen(true);
+        }}
+        onNextTurn={handleNextTurn}
+      />
 
       {/* Modals */}
       <MilitaryTechModal

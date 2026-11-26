@@ -63,20 +63,25 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Comando Esercito e Ricerca Tecnologica"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/75 backdrop-blur-sm sm:p-6"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl max-h-[88vh] bg-[#0D1524] border border-slate-700/80 rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full sm:max-w-4xl h-[88dvh] sm:h-auto sm:max-h-[88dvh] bg-[#0D1524] border-t sm:border border-slate-700/80 rounded-t-2xl sm:rounded-xl shadow-2xl flex flex-col overflow-hidden"
       >
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-800">
-          <div>
-            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none">
+        {/* Mobile grab handle */}
+        <div className="sm:hidden flex justify-center pt-2 pb-0.5 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+
+        {/* Fixed Header */}
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-800 shrink-0">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50 leading-none truncate">
               Comando Militare & Ricerca
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1 whitespace-normal">
               Fondi: <strong className="font-mono-num text-amber-300">{round1(player.funds)} B$</strong>
               <span aria-hidden="true"> · </span>
               Manodopera:{' '}
@@ -87,48 +92,48 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="inline-flex p-1 rounded-lg bg-slate-900 border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setTab('army')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                  tab === 'army'
-                    ? 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/40'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Forze Armate (4)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTab('tech')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                  tab === 'tech'
-                    ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>Tecnologie ({player.researchedTechs.length}/{scenarioTechs.length})</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Chiudi"
-              className="p-2 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Chiudi"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-slate-800/80 sm:bg-transparent text-slate-200 sm:text-slate-400 hover:text-slate-100 hover:bg-slate-800 active:bg-slate-700 transition-colors cursor-pointer shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Dedicated Horizontal Sub-Tab Bar (single-tap, zero truncation) */}
+        <div className="flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-slate-950/75 border-b border-slate-800 shrink-0 overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            onClick={() => setTab('army')}
+            className={`min-h-[42px] flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              tab === 'army'
+                ? 'bg-cyan-500/20 text-cyan-200 ring-1 ring-cyan-400/45'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900/60'
+            }`}
+          >
+            <Shield className="w-4 h-4 shrink-0" />
+            <span>Forze Armate (4)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('tech')}
+            className={`min-h-[42px] flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              tab === 'tech'
+                ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/45'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900/60'
+            }`}
+          >
+            <Cpu className="w-4 h-4 shrink-0" />
+            <span>Tecnologie ({player.researchedTechs.length}/{scenarioTechs.length})</span>
+          </button>
         </div>
 
         {/* Inline feedback */}
         {feedbackMessage && (
           <div
-            className={`mx-5 mt-3 rounded-md px-3 py-2 text-xs border ${
+            className={`mx-4 sm:mx-5 mt-3 rounded-md px-3 py-2 text-xs border shrink-0 ${
               feedbackMessage.tone === 'error'
                 ? 'bg-rose-950/60 border-rose-500/40 text-rose-200'
                 : 'bg-cyan-950/60 border-cyan-500/40 text-cyan-100'
@@ -138,8 +143,8 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
           </div>
         )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5">
+        {/* Smooth Scrollable Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 pb-[max(2rem,env(safe-area-inset-bottom))] sm:pb-6">
           {tab === 'army' ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -199,7 +204,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                                 type="button"
                                 disabled={!canAfford}
                                 onClick={() => onRecruit(branch, amount)}
-                                className="flex flex-col items-center justify-center py-2 px-1.5 rounded-md bg-slate-800/90 hover:bg-cyan-950/70 hover:border-cyan-500/40 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700/70 transition-colors cursor-pointer"
+                                className="min-h-[48px] flex flex-col items-center justify-center py-2 px-1.5 rounded-lg bg-slate-800/90 hover:bg-cyan-950/70 hover:border-cyan-500/40 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700/70 transition-colors cursor-pointer"
                               >
                                 <span className="text-xs font-semibold text-slate-100">
                                   +{amount}
@@ -235,7 +240,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                   type="button"
                   disabled={player.funds < 24 || player.stability >= 98}
                   onClick={onStabilize}
-                  className="px-4 py-2.5 rounded-md text-xs font-semibold bg-emerald-950/70 hover:bg-emerald-900/80 disabled:opacity-40 border border-emerald-500/40 text-emerald-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                  className="min-h-[44px] px-4 py-2.5 rounded-lg text-xs font-semibold bg-emerald-950/70 hover:bg-emerald-900/80 disabled:opacity-40 border border-emerald-500/40 text-emerald-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   Stabilizza (+10%) · 24 B$
                 </button>
@@ -251,7 +256,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
               </div>
 
               {player.activeResearch && (
-                <div className="rounded-lg bg-amber-950/30 border border-amber-500/35 px-4 py-3 flex items-center justify-between gap-3">
+                <div className="rounded-lg bg-amber-950/30 border border-amber-500/35 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <Clock className="w-4 h-4 text-amber-400 shrink-0" />
                     <div className="text-xs">
@@ -265,7 +270,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                       </span>
                     </div>
                   </div>
-                  <div className="w-28 h-2 rounded-full bg-slate-900 overflow-hidden shrink-0">
+                  <div className="w-full sm:w-28 h-2 rounded-full bg-slate-900 overflow-hidden shrink-0">
                     <div
                       className="h-full bg-amber-400"
                       style={{
@@ -331,7 +336,7 @@ export const MilitaryTechModal: React.FC<MilitaryTechModalProps> = ({
                           type="button"
                           disabled={!canStart}
                           onClick={() => onStartResearch(tech.id)}
-                          className="w-full py-2 px-3 rounded-md text-xs font-semibold bg-slate-800 hover:bg-amber-500/20 hover:border-amber-400/50 hover:text-amber-200 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 text-slate-200 transition-colors cursor-pointer"
+                          className="w-full min-h-[44px] py-2 px-3 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-amber-500/20 hover:border-amber-400/50 hover:text-amber-200 disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700 text-slate-200 transition-colors cursor-pointer"
                         >
                           {player.activeResearch
                             ? 'Attendi fine ricerca corrente'
