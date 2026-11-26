@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BattleReportModal } from './components/BattleReportModal';
+import { EventDecisionModal } from './components/EventDecisionModal';
 import { MilitaryTechModal } from './components/MilitaryTechModal';
 import { MobileBottomDock } from './components/MobileBottomDock';
 import { NationPanel } from './components/NationPanel';
@@ -21,9 +22,13 @@ import {
   executeCovertOperation,
   formAlliance,
   improveRelations,
+  issueWarBonds,
   launchPlayerOffensive,
   proposePeace,
   recruitUnits,
+  repayPublicDebt,
+  resolveInteractiveEvent,
+  setBudgetPolicySector,
   signNonAggression,
   stabilizeNation,
   startResearch,
@@ -41,12 +46,14 @@ import {
 import {
   ArmyBranch,
   AttackMode,
+  BudgetSector,
   CovertOpType,
   GameState,
   MapMode,
   SaveSlotId,
   SaveSlotSummary,
   ScenarioId,
+  SpendingLevel,
   TechId,
 } from './types/game';
 
@@ -196,7 +203,7 @@ export default function App() {
 
   const handleNextTurn = useCallback(() => {
     setGameState((prev) => {
-      if (!prev || prev.status !== 'playing') return prev;
+      if (!prev || prev.status !== 'playing' || prev.pendingEvent) return prev;
       return advanceTurn(prev);
     });
     setPanelFeedback(null);
@@ -245,6 +252,62 @@ export default function App() {
     showMilitaryMsg('Stabilità nazionale aumentata (+10%).', 'info');
     sfx.select();
   }, [gameState, showMilitaryMsg]);
+
+  const handleSetBudgetSector = useCallback(
+    (sector: BudgetSector, level: SpendingLevel) => {
+      if (!gameState) return;
+      const res = setBudgetPolicySector(gameState, sector, level);
+      if (res.error) {
+        showMilitaryMsg(res.error, 'error');
+        return;
+      }
+      setGameState(res.state);
+      if (res.message) showMilitaryMsg(res.message, 'info');
+      sfx.select();
+    },
+    [gameState, showMilitaryMsg]
+  );
+
+  const handleIssueWarBonds = useCallback(
+    (amount: 50 | 100) => {
+      if (!gameState) return;
+      const res = issueWarBonds(gameState, amount);
+      if (res.error) {
+        showMilitaryMsg(res.error, 'error');
+        return;
+      }
+      setGameState(res.state);
+      if (res.message) showMilitaryMsg(res.message, 'info');
+      sfx.select();
+    },
+    [gameState, showMilitaryMsg]
+  );
+
+  const handleRepayDebt = useCallback(
+    (amount: 50 | 100) => {
+      if (!gameState) return;
+      const res = repayPublicDebt(gameState, amount);
+      if (res.error) {
+        showMilitaryMsg(res.error, 'error');
+        return;
+      }
+      setGameState(res.state);
+      if (res.message) showMilitaryMsg(res.message, 'info');
+      sfx.select();
+    },
+    [gameState, showMilitaryMsg]
+  );
+
+  const handleResolveEvent = useCallback(
+    (choiceId: string) => {
+      if (!gameState) return;
+      const res = resolveInteractiveEvent(gameState, choiceId);
+      if (res.error) return;
+      setGameState(res.state);
+      sfx.select();
+    },
+    [gameState]
+  );
 
   const handleImproveRelations = useCallback(
     (targetId: string) => {
@@ -483,9 +546,9 @@ export default function App() {
         onSelectNation={handleSelectNation}
       />
 
-      {/* ZONE 3 (Mobile): Fixed-in-flow Bottom Dock (Esercito, Cronaca, Guida + Prossimo Turno) */}
+      {/* ZONE 3 (Mobile): Fixed-in-flow Bottom Dock (Governo, Cronaca, Guida + Prossimo Turno) */}
       <MobileBottomDock
-        canAdvanceTurn={gameState.status === 'playing'}
+        canAdvanceTurn={gameState.status === 'playing' && !gameState.pendingEvent}
         newsCount={gameState.news.length}
         militaryOpen={militaryOpen}
         newsOpen={newsOpen}
@@ -518,6 +581,15 @@ export default function App() {
         onRecruit={handleRecruit}
         onStartResearch={handleStartResearch}
         onStabilize={handleStabilize}
+        onSetBudgetSector={handleSetBudgetSector}
+        onIssueWarBonds={handleIssueWarBonds}
+        onRepayDebt={handleRepayDebt}
+      />
+
+      <EventDecisionModal
+        event={gameState.pendingEvent}
+        gameState={gameState}
+        onChoose={handleResolveEvent}
       />
 
       <BattleReportModal

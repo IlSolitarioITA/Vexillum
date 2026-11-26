@@ -22,6 +22,17 @@ export type AttackMode = 'ground' | 'air_raid' | 'amphibious' | 'naval_blockade'
 
 export type CovertOpType = 'propaganda' | 'cyber' | 'sabotage' | 'rebels';
 
+export type BudgetSector = 'defense' | 'education' | 'welfare' | 'infrastructure';
+
+export type SpendingLevel = 'cut' | 'normal' | 'boosted';
+
+export interface BudgetPolicy {
+  defense: SpendingLevel;
+  education: SpendingLevel;
+  welfare: SpendingLevel;
+  infrastructure: SpendingLevel;
+}
+
 export type TechId =
   | 'tactical_drones'
   | 'integrated_air_defense'
@@ -86,6 +97,12 @@ export interface NationSeed {
 export interface NationState extends NationSeed {
   ownerId: string;
   funds: number;
+  /** Sovereign public debt in B$ */
+  publicDebt: number;
+  /** Public spending policy across 4 state sectors (Defense, Education, Welfare, Infrastructure) */
+  budgetPolicy: BudgetPolicy;
+  /** Territory economic reconstruction & integration yield (0.55..1.0; 1.0 for homeland core) */
+  integration: number;
   aggressiveness: number; // 0-100
   researchedTechs: TechId[];
   activeResearch: ActiveResearch | null;
@@ -159,6 +176,31 @@ export interface NewsEvent {
   nationIds?: string[];
 }
 
+export type GameEventKind = 'national' | 'world_council';
+
+export interface EventChoice {
+  id: string;
+  label: string;
+  description: string;
+  pros: string;
+  cons: string;
+  tone?: 'neutral' | 'aggressive' | 'diplomatic' | 'economic';
+}
+
+export interface GameEvent {
+  id: string;
+  templateId: string;
+  turn: number;
+  dateLabel: string;
+  kind: GameEventKind;
+  title: string;
+  subtitle: string;
+  description: string;
+  involvedNationId?: string;
+  secondaryNationId?: string;
+  choices: EventChoice[];
+}
+
 export interface TechDefinition {
   id: TechId;
   name: string;
@@ -175,6 +217,12 @@ export interface GameState {
   turn: number; // 0 = mese iniziale dello scenario
   playerId: string;
   globalTension: number; // 0-100
+  /** Progressive geopolitical friction counter driving realistic AI flashpoints */
+  geopoliticalFriction: number;
+  /** Turn index of the last interactive decision/World Council event */
+  lastEventTurn: number;
+  /** Currently active interactive decision event awaiting player choice */
+  pendingEvent: GameEvent | null;
   nations: Record<string, NationState>;
   relations: Record<string, number>;
   alliances: Record<string, boolean>;

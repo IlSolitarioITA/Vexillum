@@ -488,17 +488,44 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
             </ul>
           </section>
 
-          <section className="space-y-1">
+          <section className="space-y-1.5">
             <h3 className="font-semibold text-slate-100">
-              2. Mappa 360°, Economia e 4 Rami Militari
+              2. Comando & Governo: Forze Armate, Spesa Pubblica & Debito
             </h3>
             <p className="whitespace-normal">
-              Trascina la mappa senza interruzioni a 360° e tocca qualsiasi paese del mondo. Premi{' '}
-              <strong className="text-amber-300">Prossimo Turno</strong> per incassare il gettito
-              mensile e spendi i Fondi in <strong className="text-cyan-300">Esercito & Ricerca</strong>{' '}
-              per reclutare unità nei 4 rami (<em>Terra, Aria, Mare, Difesa</em>), ricercare
-              tecnologie d’epoca o stabilizzare il fronte interno.
+              Apri <strong className="text-cyan-300">Comando & Governo</strong> (<em>Governo</em> su
+              mobile) per gestire l’intera macchina statale su 3 schede:
             </p>
+            <ul className="space-y-1 pl-4 list-disc text-slate-300 text-xs leading-relaxed">
+              <li className="whitespace-normal">
+                <strong className="text-slate-100">Forze Armate & Tecnologie:</strong> seleziona una
+                quantità unica (<code className="font-mono-num">+5 / +10 / +25 / +50</code>) per
+                reclutare nei 4 rami (<em>Terra, Aria, Mare, Difesa</em>) controllando subito il
+                mantenimento mensile, e ricerca tecnologie d’epoca.
+              </li>
+              <li className="whitespace-normal">
+                <strong className="text-emerald-300">Spesa Pubblica (Bilancio al 100%):</strong>{' '}
+                regola <em>Difesa & Armamenti</em>, <em>Istruzione & Ricerca</em>,{' '}
+                <em>Sanità & Welfare</em> e <em>Infrastrutture & Economia</em> tra{' '}
+                <em>Tagliato / Normale / Potenziato</em>. Tagliare i servizi libera fondi per le
+                armi, ma frena la ricerca (65%), il PIL o la Stabilità interna.
+              </li>
+              <li className="whitespace-normal">
+                <strong className="text-amber-300">Debito Pubblico & Titoli di Guerra:</strong> puoi
+                emettere titoli (<code className="font-mono-num">+50 / +100 B$</code>) per ottenere
+                subito liquidità bellica o rimborsarli. Superare{' '}
+                <strong className="font-mono-num">100%</strong> e{' '}
+                <strong className="font-mono-num">140%</strong> di Debito/PIL fa impennare gli
+                interessi, crollare la Stabilità e attira attacchi opportunisti dai vicini ostili.
+              </li>
+              <li className="whitespace-normal">
+                <strong className="text-cyan-300">Ricostruzione Post-Conquista:</strong> quando
+                annetti uno stato, il suo PIL entra subito nel tuo bilancio al{' '}
+                <strong className="font-mono-num">55–65%</strong> di resa (con costi amministrativi e
+                quota di debito) e risale verso il <strong className="font-mono-num">100%</strong>{' '}
+                consolidando Stabilità e Infrastrutture.
+              </li>
+            </ul>
           </section>
 
           <section className="space-y-1.5">
@@ -587,15 +614,18 @@ export const HowToPlayModal: React.FC<HowToPlayModalProps> = ({ open, onClose })
 
           <section className="space-y-1">
             <h3 className="font-semibold text-slate-100">
-              6. Effetto Domino, Paesi Neutrali e 5 Slot di Salvataggio
+              6. Cronache Vive, Consiglio Mondiale & Effetto Domino
             </h3>
             <p className="whitespace-normal">
-              Attaccare un membro di un’alleanza (o scatenare una guerra tramite False Flag) può
-              attivare l’<strong className="text-amber-300">Effetto Domino</strong>, trascinando gli
-              alleati difensivi nel conflitto. Anche tutti gli stati neutrali sono attaccabili per
-              la conquista totale del mondo, ma violare la neutralità fa impennare la Tensione
-              Globale. Dal menu puoi gestire fino a <strong className="text-cyan-300">5 slot</strong>{' '}
-              di salvataggio indipendenti in locale.
+              Ogni turno la <strong className="text-amber-300">Cronaca</strong> registra manovre di
+              confine, accordi commerciali, riarmi e frizioni geopolitiche tra IA. Ogni 2–4 turni (o
+              in caso di debito elevato e tagli sociali) si aprono{' '}
+              <strong className="text-cyan-300">Decisioni di Governo</strong> e vertici del{' '}
+              <strong className="text-cyan-300">Consiglio Mondiale</strong> (sanzioni, trattati sugli
+              armamenti, crisi energetiche, aiuti umanitari) con Pro e Contro chiari. Attaccare
+              membri di blocchi o alleati attiva l’<strong className="text-amber-300">Effetto Domino</strong>;
+              dal menu puoi gestire fino a <strong className="text-cyan-300">5 slot</strong> di
+              salvataggio indipendenti in locale.
             </p>
           </section>
         </div>

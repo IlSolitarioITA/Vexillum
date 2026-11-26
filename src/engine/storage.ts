@@ -1,6 +1,6 @@
 import { getScenarioDefinition } from '../data/scenarios';
 import { GameState, SaveMeta, SaveSlotId, SaveSlotSummary, ScenarioId } from '../types/game';
-import { formatTurnDate, getControlledProvinces, round1 } from './helpers';
+import { formatTurnDate, getBudgetPolicy, getControlledProvinces, round1 } from './helpers';
 import { GAME_STATE_VERSION } from './simulation';
 
 const SLOT_PREFIX = 'vexillum_save_slot_v2_';
@@ -42,8 +42,18 @@ function isValidGameState(candidate: unknown): candidate is GameState {
 function hydrateState(state: GameState): GameState {
   const nations = { ...state.nations };
   for (const [id, n] of Object.entries(nations)) {
+    const isSov = n.ownerId === n.id;
+    const defaultDebt = isSov ? round1(Math.max(0, (n.gdpIncome ?? 8) * 12 * 0.35)) : 0;
     nations[id] = {
       ...n,
+      publicDebt: typeof n.publicDebt === 'number' && Number.isFinite(n.publicDebt) ? n.publicDebt : defaultDebt,
+      budgetPolicy: getBudgetPolicy(n),
+      integration:
+        typeof n.integration === 'number' && Number.isFinite(n.integration)
+          ? n.integration
+          : isSov
+            ? 1.0
+            : 0.65,
       airDefenseDisabledUntilTurn:
         typeof n.airDefenseDisabledUntilTurn === 'number' ? n.airDefenseDisabledUntilTurn : -1,
       cyberDisruptedUntilTurn:
@@ -60,6 +70,17 @@ function hydrateState(state: GameState): GameState {
   return {
     ...state,
     scenarioId,
+    geopoliticalFriction:
+      typeof state.geopoliticalFriction === 'number' && Number.isFinite(state.geopoliticalFriction)
+        ? state.geopoliticalFriction
+        : scenarioId === '2026'
+          ? 12
+          : 25,
+    lastEventTurn:
+      typeof state.lastEventTurn === 'number' && Number.isFinite(state.lastEventTurn)
+        ? state.lastEventTurn
+        : state.turn,
+    pendingEvent: state.pendingEvent ?? null,
     nations,
     navalBlockades: state.navalBlockades ?? {},
     covertUsedThisTurn: state.covertUsedThisTurn ?? {},

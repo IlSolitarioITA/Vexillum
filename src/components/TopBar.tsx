@@ -172,7 +172,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium text-slate-200 bg-slate-800/85 hover:bg-slate-700/90 border border-slate-700/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Shield className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span>Esercito & Ricerca</span>
+            <span>Comando & Governo</span>
           </button>
 
           {/* Compact Dropdown Menu for Save, Help, Privacy, Audio, Home */}
@@ -269,7 +269,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <button
             type="button"
             onClick={onNextTurn}
-            disabled={gameState.status !== 'playing'}
+            disabled={gameState.status !== 'playing' || Boolean(gameState.pendingEvent)}
             className="hidden md:flex items-center gap-1 px-3.5 py-2 rounded-md text-xs sm:text-sm font-semibold text-slate-950 bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-sm"
           >
             <span>Prossimo Turno</span>

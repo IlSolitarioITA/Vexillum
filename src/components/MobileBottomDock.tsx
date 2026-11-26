@@ -43,7 +43,7 @@ export const MobileBottomDock: React.FC<MobileBottomDockProps> = ({
             }`}
           >
             <Shield className="w-[18px] h-[18px] text-cyan-400 shrink-0" />
-            <span className="text-[11px] font-medium leading-none whitespace-nowrap">Esercito</span>
+            <span className="text-[11px] font-medium leading-none whitespace-nowrap">Governo</span>
           </button>
 
           <button

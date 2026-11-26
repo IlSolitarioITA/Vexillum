@@ -12,6 +12,7 @@ import {
 import {
   ArmyBranch,
   AttackMode,
+  BudgetSector,
   CovertOpOutcome,
   CovertOpType,
   GameState,
@@ -19,11 +20,18 @@ import {
   NewsCategory,
   NewsEvent,
   ScenarioId,
+  SpendingLevel,
   TechId,
   War,
 } from '../types/game';
 import { resolveOffensive } from './combat';
 import {
+  applyEventChoiceToState,
+  generatePeacetimeWorldNews,
+  maybeTriggerInteractiveEvent,
+} from './events';
+import {
+  DEFAULT_BUDGET_POLICY,
   areAllied,
   areAtWar,
   checkAttackModeEligibility,
@@ -31,19 +39,23 @@ import {
   clamp,
   directedKey,
   formatTurnDate,
+  getBudgetPolicy,
   getControlledProvinces,
   getMilitaryRating,
   getMonthlyEconomy,
   getPotentialDefenders,
   getRecruitmentCost,
   getRelation,
+  getResearchSpeedMultiplier,
   getWarBetween,
+  hasLandBorder,
   hasNonAggressionPact,
   hasSanctioned,
   hasTech,
   isSovereign,
   pairKey,
   round1,
+  round2,
   roundInt,
   safeNum,
   sanctionKey,
@@ -117,6 +129,7 @@ function cloneState(state: GameState): GameState {
   for (const [id, n] of Object.entries(state.nations)) {
     nations[id] = {
       ...n,
+      budgetPolicy: { ...getBudgetPolicy(n) },
       army: { ...n.army },
       researchedTechs: [...n.researchedTechs],
       activeResearch: n.activeResearch ? { ...n.activeResearch } : null,
@@ -125,6 +138,12 @@ function cloneState(state: GameState): GameState {
   }
   return {
     ...state,
+    pendingEvent: state.pendingEvent
+      ? {
+          ...state.pendingEvent,
+          choices: state.pendingEvent.choices.map((c) => ({ ...c })),
+        }
+      : null,
     nations,
     relations: { ...state.relations },
     alliances: { ...state.alliances },
@@ -157,6 +176,9 @@ export function createInitialGameState(
       ...seed,
       ownerId: owner,
       funds: isSubject ? 0 : seed.startingFunds,
+      publicDebt: isSubject ? 0 : round1(seed.gdpIncome * 12 * 0.35),
+      budgetPolicy: { ...DEFAULT_BUDGET_POLICY },
+      integration: isSubject ? 0.72 : 1.0,
       aggressiveness: 0,
       researchedTechs: [],
       activeResearch: null,
@@ -273,6 +295,9 @@ export function createInitialGameState(
     turn: 0,
     playerId: validPlayerId,
     globalTension: scenario.initialTension,
+    geopoliticalFriction: scenarioId === '2026' ? 12 : 25,
+    lastEventTurn: 0,
+    pendingEvent: null,
     nations,
     relations,
     alliances,
@@ -296,21 +321,44 @@ function applyAnnexation(state: GameState, winnerId: string, loserId: string): v
   const loser = state.nations[loserId];
   if (!winner || !loser) return;
 
+  let conqueredGdpTotal = 0;
+  let avgInitIntegration = 0;
+  let transferredCount = 0;
+
   for (const prov of Object.values(state.nations)) {
     if (prov.ownerId === loserId) {
       prov.ownerId = winnerId;
+      // Post-conquest reconstruction starts at 55%-65% GDP yield and recovers toward 100% with stability
+      const initYield = round2(0.55 + Math.random() * 0.1);
+      prov.integration = initYield;
+      conqueredGdpTotal += safeNum(prov.gdpIncome, 0);
+      avgInitIntegration += initYield;
+      transferredCount += 1;
     }
   }
 
-  const spoils = round1(Math.max(10, loser.funds * 0.45 + loser.gdpIncome * 0.5));
+  const yieldPct =
+    transferredCount > 0 ? roundInt((avgInitIntegration / transferredCount) * 100) : 60;
+
+  const spoils = round1(Math.max(8, loser.funds * 0.4 + loser.gdpIncome * 0.45));
+  const manpowerGain = roundInt(
+    Math.max(10, loser.manpower * 0.35 + safeNum(loser.manpowerGrowth, 4) * 4)
+  );
+  // Absorbed reconstruction liabilities & sovereign obligations
+  const absorbedDebt = round1(
+    Math.max(conqueredGdpTotal * 2.4, safeNum(loser.publicDebt, conqueredGdpTotal * 4) * 0.45)
+  );
+
   winner.funds = round1(Math.max(0, winner.funds + spoils));
-  winner.manpower = roundInt(Math.max(0, winner.manpower + loser.manpower * 0.25));
+  winner.manpower = roundInt(clamp(winner.manpower + manpowerGain, 0, 6000));
+  winner.publicDebt = round1(Math.max(0, safeNum(winner.publicDebt, 0) + absorbedDebt));
   winner.stability = clamp(roundInt(winner.stability - 10), 15, 100);
   winner.aggressiveness = clamp(roundInt(winner.aggressiveness + 14), 0, 100);
   winner.annexations += 1;
 
   loser.army = { ground: 0, air: 0, navy: 0, defense: 0 };
   loser.funds = 0;
+  loser.publicDebt = 0;
   loser.activeResearch = null;
   loser.internalCrisisActive = false;
 
@@ -336,9 +384,10 @@ function applyAnnexation(state: GameState, winnerId: string, loserId: string): v
     makeNews(
       state.turn,
       'war',
-      `Caduta di ${loser.name}: annessione completata da ${winner.name}`,
-      `${winner.name} assume il pieno controllo di ${loser.name} (+${spoils} B$ bottino). La resistenza locale riduce temporaneamente la stabilità (-10%).`,
-      [winnerId, loserId]
+      `Caduta di ${loser.name}: unificazione completata da ${winner.name}`,
+      `${winner.name} integra ${loser.name} (resa economica iniziale ${yieldPct}%, +${manpowerGain}k manodopera, +${spoils} B$ bottino, +${absorbedDebt} B$ costi/debito di ricostruzione, Stabilità -10%).`,
+      [winnerId, loserId],
+      state.scenarioId
     )
   );
 }
@@ -573,6 +622,141 @@ export function stabilizeNation(state: GameState): { state: GameState; error?: s
     player.internalCrisisActive = false;
   }
   return { state: next };
+}
+
+export function setBudgetPolicySector(
+  state: GameState,
+  sector: BudgetSector,
+  level: SpendingLevel
+): { state: GameState; message?: string; error?: string } {
+  const next = cloneState(state);
+  const player = next.nations[next.playerId];
+  if (!player || !isSovereign(player)) return { state, error: 'Nazione non disponibile.' };
+
+  const currentPolicy = getBudgetPolicy(player);
+  if (currentPolicy[sector] === level) return { state };
+
+  player.budgetPolicy = {
+    ...currentPolicy,
+    [sector]: level,
+  };
+
+  const sectorLabels: Record<BudgetSector, string> = {
+    defense: 'Difesa & Armamenti',
+    education: 'Istruzione & Ricerca',
+    welfare: 'Sanità & Welfare',
+    infrastructure: 'Infrastrutture & Economia',
+  };
+  const levelLabels: Record<SpendingLevel, string> = {
+    cut: 'Tagliato',
+    normal: 'Normale',
+    boosted: 'Potenziato',
+  };
+
+  return {
+    state: next,
+    message: `${sectorLabels[sector]} impostato su ${levelLabels[level]}.`,
+  };
+}
+
+export function issueWarBonds(
+  state: GameState,
+  amount: 50 | 100
+): { state: GameState; message?: string; error?: string } {
+  const next = cloneState(state);
+  const player = next.nations[next.playerId];
+  if (!player || !isSovereign(player)) return { state, error: 'Nazione non disponibile.' };
+
+  const ecoBefore = getMonthlyEconomy(next, player.id);
+  if (ecoBefore.debtToGdpPercent >= 220) {
+    return {
+      state,
+      error: 'I mercati rifiutano nuovi titoli: il rapporto Debito/PIL ha superato il limite critico (220%).',
+    };
+  }
+
+  player.funds = round1(player.funds + amount);
+  player.publicDebt = round1(safeNum(player.publicDebt, 0) + amount);
+
+  const ecoAfter = getMonthlyEconomy(next, player.id);
+  let stabNote = '';
+  if (ecoAfter.debtToGdpPercent > 140) {
+    player.stability = clamp(roundInt(player.stability - 4), 5, 100);
+    stabNote = ' Spread in allarme: Stabilità -4%.';
+  } else if (ecoAfter.debtToGdpPercent > 100) {
+    player.stability = clamp(roundInt(player.stability - 2), 5, 100);
+    stabNote = ' Debito oltre il 100% PIL: Stabilità -2%.';
+  }
+
+  if (
+    (ecoBefore.debtToGdpPercent <= 100 && ecoAfter.debtToGdpPercent > 100) ||
+    (ecoBefore.debtToGdpPercent <= 140 && ecoAfter.debtToGdpPercent > 140)
+  ) {
+    next.news.unshift(
+      makeNews(
+        next.turn,
+        'economy',
+        `${player.name} emette Titoli di Guerra (+${amount} B$)`,
+        `Il debito pubblico sale a ${ecoAfter.publicDebt} B$ (${ecoAfter.debtToGdpPercent}% del PIL), aumentando il peso degli interessi mensili (-${ecoAfter.debtInterest} B$/mese).`,
+        [player.id],
+        next.scenarioId
+      )
+    );
+    syncNewsDates(next);
+  }
+
+  return {
+    state: next,
+    message: `Emessi Titoli di Guerra per +${amount} B$ (Debito/PIL: ${ecoAfter.debtToGdpPercent}%).${stabNote}`,
+  };
+}
+
+export function repayPublicDebt(
+  state: GameState,
+  amount: 50 | 100
+): { state: GameState; message?: string; error?: string } {
+  const next = cloneState(state);
+  const player = next.nations[next.playerId];
+  if (!player || !isSovereign(player)) return { state, error: 'Nazione non disponibile.' };
+
+  const currentDebt = round1(Math.max(0, safeNum(player.publicDebt, 0)));
+  if (currentDebt <= 0.1) {
+    return { state, error: 'Il debito pubblico è già stato azzerato.' };
+  }
+
+  const repay = round1(Math.min(amount, currentDebt));
+  if (player.funds < repay) {
+    return { state, error: `Servono ${repay} B$ di fondi liquidi per rimborsare questa quota.` };
+  }
+
+  const ecoBefore = getMonthlyEconomy(next, player.id);
+  player.funds = round1(Math.max(0, player.funds - repay));
+  player.publicDebt = round1(Math.max(0, currentDebt - repay));
+
+  if (ecoBefore.debtToGdpPercent >= 90) {
+    player.stability = clamp(roundInt(player.stability + (repay >= 80 ? 3 : 2)), 0, 100);
+  }
+
+  const ecoAfter = getMonthlyEconomy(next, player.id);
+  return {
+    state: next,
+    message: `Rimborsati ${repay} B$ di debito pubblico (Debito/PIL ora al ${ecoAfter.debtToGdpPercent}%).`,
+  };
+}
+
+export function resolveInteractiveEvent(
+  state: GameState,
+  choiceId: string
+): { state: GameState; message?: string; error?: string } {
+  if (!state.pendingEvent) return { state, error: 'Nessun evento in attesa.' };
+  const next = cloneState(state);
+  const res = applyEventChoiceToState(next, choiceId);
+  if (res.error) return { state, error: res.error };
+
+  next.news = next.news.slice(0, 60);
+  syncNewsDates(next);
+  checkEndConditions(next);
+  return { state: next, message: res.message };
 }
 
 export function startResearch(
@@ -1185,49 +1369,115 @@ export function advanceTurn(state: GameState): GameState {
 
   const sovereigns = Object.values(next.nations).filter(isSovereign);
 
-  // 1. Monthly economy, manpower, stability, crisis recovery, tech progress
+  // 1. Monthly economy, public spending, debt pressure, reconstruction, manpower, stability, tech progress
   for (const nation of sovereigns) {
+    const policy = getBudgetPolicy(nation);
     const eco = getMonthlyEconomy(next, nation.id);
-    nation.funds = round1(Math.max(0, nation.funds + eco.netIncome));
 
+    // Apply net monthly budget; if liquid reserves run dry, cover shortfall via sovereign debt
+    const projectedFunds = round1(nation.funds + eco.netIncome);
+    if (projectedFunds < 0) {
+      const deficit = round1(Math.abs(projectedFunds));
+      nation.funds = 0;
+      nation.publicDebt = round1(safeNum(nation.publicDebt, 0) + deficit);
+    } else {
+      nation.funds = projectedFunds;
+    }
+
+    // Structural GDP drift tied to Education & Research investment
+    const gdpGrowthRate =
+      policy.education === 'boosted' ? 0.0035 : policy.education === 'cut' ? -0.0015 : 0.001;
+    nation.gdpIncome = round1(clamp(nation.gdpIncome * (1 + gdpGrowthRate), 2, 950));
+
+    // Owned provinces: manpower growth + post-conquest reconstruction/integration recovery
     const ownedProvs = getControlledProvinces(next, nation.id);
-    const totalGrowth = ownedProvs.reduce(
-      (sum, p) => sum + (p.id === nation.id ? p.manpowerGrowth : p.manpowerGrowth * 0.45),
-      0
-    );
-    nation.manpower = roundInt(clamp(nation.manpower + totalGrowth, 0, 6000));
+    const welfareManpowerMult =
+      policy.welfare === 'boosted' ? 1.15 : policy.welfare === 'cut' ? 0.9 : 1.0;
 
+    let totalGrowth = 0;
+    for (const p of ownedProvs) {
+      if (p.id === nation.id) {
+        totalGrowth += p.manpowerGrowth;
+        p.integration = 1.0;
+      } else {
+        const currentInteg = clamp(safeNum(p.integration, 0.65), 0.55, 1.0);
+        totalGrowth += p.manpowerGrowth * (0.35 + currentInteg * 0.45);
+        // Consolidating stability & investing in infrastructure brings annexed territories toward 100%
+        if (currentInteg < 1.0) {
+          let integDelta = 0;
+          if (nation.stability >= 55) {
+            integDelta = 0.025;
+            if (nation.stability >= 75) integDelta += 0.02;
+            if (policy.infrastructure === 'boosted') integDelta += 0.02;
+            else if (policy.infrastructure === 'cut') integDelta -= 0.01;
+          } else if (nation.stability < 35) {
+            integDelta = -0.015;
+          }
+          p.integration = round2(clamp(currentInteg + integDelta, 0.55, 1.0));
+        }
+      }
+    }
+    nation.manpower = roundInt(clamp(nation.manpower + totalGrowth * welfareManpowerMult, 0, 6000));
+
+    // War exhaustion & monthly stability effects from public policy + debt + war
     const activeWars = next.wars.filter(
       (w) => w.attackerId === nation.id || w.defenderId === nation.id
     );
+    let stabDelta = 0;
+
+    if (policy.welfare === 'cut') stabDelta -= 2;
+    else if (policy.welfare === 'boosted') stabDelta += 2;
+
+    if (eco.debtToGdpPercent > 140) stabDelta -= 3;
+    else if (eco.debtToGdpPercent > 100) stabDelta -= 1;
+
+    if (policy.welfare === 'cut' && eco.debtToGdpPercent > 100) {
+      stabDelta -= 1;
+    }
+
     if (activeWars.length > 0) {
       nation.warExhaustion = clamp(roundInt(nation.warExhaustion + activeWars.length * 2), 0, 100);
-      if (nation.warExhaustion > 35) {
-        nation.stability = clamp(roundInt(nation.stability - 1), 10, 100);
-      }
+      if (nation.warExhaustion > 35) stabDelta -= 1;
     } else {
       nation.warExhaustion = clamp(roundInt(nation.warExhaustion - 4), 0, 100);
-      const stabRecovery = hasTech(nation, 'cyber_warfare') ? 2 : 1;
       if (nation.stability < 82) {
-        nation.stability = clamp(roundInt(nation.stability + stabRecovery), 10, 100);
+        stabDelta += hasTech(nation, 'cyber_warfare') ? 2 : 1;
       }
       nation.aggressiveness = clamp(roundInt(nation.aggressiveness - 2), 0, 100);
     }
 
-    // Internal crisis resolution/persistence
+    nation.stability = clamp(roundInt(nation.stability + stabDelta), 5, 100);
+
+    // Internal crisis activation/resolution (stability collapse or severe sovereign debt crisis)
     if (nation.internalCrisisActive) {
-      if (nation.stability >= 42) {
+      if (nation.stability >= 42 && eco.debtToGdpPercent < 155) {
         nation.internalCrisisActive = false;
       } else {
         nation.army.ground = Math.max(4, roundInt(nation.army.ground * 0.97));
       }
-    } else if (nation.stability < 25) {
+    } else if (nation.stability < 28 || (eco.debtToGdpPercent > 140 && nation.stability < 40)) {
       nation.internalCrisisActive = true;
+      if (nation.id === next.playerId) {
+        next.news.unshift(
+          makeNews(
+            next.turn,
+            'economy',
+            `Crisi Interna in ${nation.name}: proteste e paralisi`,
+            `La bassa stabilità (${nation.stability}%) e la pressione sul bilancio (Debito/PIL ${eco.debtToGdpPercent}%) scatenano disordini interni (-20% PIL ed efficacia militare).`,
+            [nation.id],
+            next.scenarioId
+          )
+        );
+      }
     }
 
+    // Research progress scaled by Education & Research policy (65% / 100% / 140%)
     if (nation.activeResearch) {
-      nation.activeResearch.turnsRemaining -= 1;
-      if (nation.activeResearch.turnsRemaining <= 0) {
+      const researchStep = getResearchSpeedMultiplier(nation);
+      nation.activeResearch.turnsRemaining = round2(
+        nation.activeResearch.turnsRemaining - researchStep
+      );
+      if (nation.activeResearch.turnsRemaining <= 0.01) {
         const finishedId = nation.activeResearch.techId;
         if (!nation.researchedTechs.includes(finishedId)) {
           nation.researchedTechs.push(finishedId);
@@ -1253,14 +1503,22 @@ export function advanceTurn(state: GameState): GameState {
     }
   }
 
-  // 2. AI recruitment & research
+  // 2. AI recruitment, debt discipline & research
   const scenarioTechs = getScenarioTechnologies(next.scenarioId);
   for (const nation of sovereigns) {
     if (nation.id === next.playerId) continue;
 
-    if (!nation.activeResearch && nation.funds > 75 && Math.random() < 0.14) {
+    // AI gently pays down excess debt in peacetime
+    const atWar = next.wars.some((w) => w.attackerId === nation.id || w.defenderId === nation.id);
+    if (!atWar && nation.funds > 95 && nation.publicDebt > 40) {
+      const pay = round1(Math.min(35, nation.publicDebt));
+      nation.funds = round1(nation.funds - pay);
+      nation.publicDebt = round1(nation.publicDebt - pay);
+    }
+
+    if (!nation.activeResearch && nation.funds > 70 && Math.random() < 0.16) {
       const available = scenarioTechs.filter(
-        (t) => !nation.researchedTechs.includes(t.id) && nation.funds >= t.cost + 20
+        (t) => !nation.researchedTechs.includes(t.id) && nation.funds >= t.cost + 16
       );
       if (available.length > 0) {
         const pick = available[Math.floor(Math.random() * available.length)];
@@ -1273,11 +1531,10 @@ export function advanceTurn(state: GameState): GameState {
       }
     }
 
-    const atWar = next.wars.some((w) => w.attackerId === nation.id || w.defenderId === nation.id);
     if (
-      nation.funds > (atWar ? 24 : 58) &&
+      nation.funds > (atWar ? 22 : 52) &&
       nation.manpower >= 15 &&
-      Math.random() < (atWar ? 0.65 : 0.28)
+      Math.random() < (atWar ? 0.68 : 0.32)
     ) {
       const branches: ArmyBranch[] = nation.coastal
         ? ['ground', 'ground', 'air', 'defense', 'navy']
@@ -1319,7 +1576,8 @@ export function advanceTurn(state: GameState): GameState {
       const reach = checkMilitaryReach(next, actor.id, target.id);
       let chosenMode: AttackMode | null = null;
       if (reach.viaLand && actor.army.ground >= 16) {
-        chosenMode = actor.funds >= 25 && actor.army.air >= 20 && Math.random() < 0.35 ? 'combined' : 'ground';
+        chosenMode =
+          actor.funds >= 25 && actor.army.air >= 20 && Math.random() < 0.35 ? 'combined' : 'ground';
       } else if (reach.viaSea && actor.army.ground >= 16) {
         chosenMode = Math.random() < 0.3 ? 'naval_blockade' : 'amphibious';
       } else if (actor.army.air >= 18 && actor.funds >= 12) {
@@ -1332,7 +1590,7 @@ export function advanceTurn(state: GameState): GameState {
       const targetRating = getMilitaryRating(target);
       const shouldAttack =
         (chosenMode === 'air_raid' || actorRating >= targetRating * 0.7) &&
-        Math.random() < (target.id === next.playerId ? 0.52 : 0.44);
+        Math.random() < (target.id === next.playerId ? 0.52 : 0.46);
 
       if (shouldAttack) {
         const alloc = clamp(Math.round(45 + Math.random() * 25), 40, 75);
@@ -1364,14 +1622,15 @@ export function advanceTurn(state: GameState): GameState {
         if (result.annexed) {
           applyAnnexation(next, actor.id, target.id);
           break;
-        } else if (target.id === next.playerId || Math.random() < 0.3) {
+        } else if (target.id === next.playerId || Math.random() < 0.32) {
           next.news.unshift(
             makeNews(
               next.turn,
               'war',
               `Offensiva di ${actor.name} contro ${target.name}`,
               result.report.summary,
-              [actor.id, target.id]
+              [actor.id, target.id],
+              next.scenarioId
             )
           );
         }
@@ -1405,55 +1664,195 @@ export function advanceTurn(state: GameState): GameState {
             'war',
             `Coalizione Difensiva: ${leader.name} dichiara guerra a ${player.name}`,
             `Allarmata dall’espansionismo di ${player.name} (Aggressività ${player.aggressiveness}%), ${leader.name} interviene per contenere l’escalation.`,
-            [leader.id, player.id]
+            [leader.id, player.id],
+            next.scenarioId
           )
         );
       }
     }
   }
 
-  // 5. Third-party regional flashpoints & AI-vs-AI wars based on Global Tension
+  // 5. Progressive Geopolitical Friction & Opportunistic AI (lively but realistic world)
   const activeAiWars = next.wars.filter(
     (w) => w.attackerId !== next.playerId && w.defenderId !== next.playerId
   ).length;
 
-  const flashpointChance =
-    next.globalTension >= 65 ? 0.28 : next.globalTension >= 40 ? 0.16 : 0.07;
+  // Build geopolitical friction steadily when the world is quiet so a regional crisis erupts within months 6-18
+  if (next.wars.length === 0) {
+    next.geopoliticalFriction = clamp(roundInt(next.geopoliticalFriction + 7), 0, 100);
+  } else if (activeAiWars < 2) {
+    next.geopoliticalFriction = clamp(roundInt(next.geopoliticalFriction + 3), 0, 100);
+  } else {
+    next.geopoliticalFriction = clamp(roundInt(next.geopoliticalFriction - 6), 0, 100);
+  }
 
-  if (activeAiWars < 4 && Math.random() < flashpointChance) {
+  // 5A. Opportunistic AI exploiting vulnerable neighbors (including weakened/over-indebted player after grace period)
+  if (player && isSovereign(player) && next.turn >= 4) {
+    const playerEco = getMonthlyEconomy(next, player.id);
+    const playerVulnerable =
+      player.stability < 40 ||
+      player.internalCrisisActive ||
+      playerEco.debtToGdpPercent > 125;
+
+    if (playerVulnerable) {
+      const hostileNeighbors = sovereigns.filter(
+        (n) =>
+          n.id !== player.id &&
+          !n.strictNeutral &&
+          !areAtWar(next, n.id, player.id) &&
+          !areAllied(next, n.id, player.id) &&
+          !hasNonAggressionPact(next, n.id, player.id) &&
+          getRelation(next, n.id, player.id) <= -15 &&
+          (hasLandBorder(next, n.id, player.id) || checkMilitaryReach(next, n.id, player.id).canReach) &&
+          getMilitaryRating(n) >= getMilitaryRating(player) * 0.85
+      );
+
+      if (hostileNeighbors.length > 0) {
+        const opp = hostileNeighbors[Math.floor(Math.random() * hostileNeighbors.length)];
+        const attackChance =
+          player.stability < 30 || playerEco.debtToGdpPercent > 145 ? 0.24 : 0.12;
+        if (Math.random() < attackChance) {
+          createWarEntry(next, opp.id, player.id, false);
+          opp.aggressiveness = clamp(roundInt(opp.aggressiveness + 14), 0, 100);
+          next.globalTension = clamp(roundInt(next.globalTension + 7), 0, 100);
+          next.news.unshift(
+            makeNews(
+              next.turn,
+              'war',
+              `Attacco Opportunista: ${opp.name} dichiara guerra a ${player.name}!`,
+              `Sfruttando la fragilità interna di ${player.name} (Stabilità ${player.stability}%, Debito/PIL ${playerEco.debtToGdpPercent}%), ${opp.name} lancia un’offensiva strategica.`,
+              [opp.id, player.id],
+              next.scenarioId
+            )
+          );
+          triggerDominoReactions(next, opp.id, player.id);
+        } else if (!hasSanctioned(next, opp.id, player.id) && Math.random() < 0.35) {
+          next.sanctions[sanctionKey(opp.id, player.id)] = true;
+          adjustRelation(next, opp.id, player.id, -16);
+          next.news.unshift(
+            makeNews(
+              next.turn,
+              'economy',
+              `Pressione estera: ${opp.name} sanziona ${player.name}`,
+              `${opp.name} sfrutta le difficoltà economiche e politiche di ${player.name} per imporre restrizioni commerciali e rivendicazioni diplomatiche.`,
+              [opp.id, player.id],
+              next.scenarioId
+            )
+          );
+        }
+      }
+    }
+  }
+
+  // 5B. Border incidents / rival friction escalations between AI powers (feeds into realistic flashpoints)
+  if (activeAiWars < 3 && next.turn >= 2 && Math.random() < 0.42) {
+    const frictionCandidates = sovereigns.filter(
+      (n) =>
+        n.id !== next.playerId &&
+        !n.strictNeutral &&
+        n.army.ground >= 35 &&
+        !next.wars.some((w) => w.attackerId === n.id || w.defenderId === n.id)
+    );
+    if (frictionCandidates.length >= 2) {
+      const a = frictionCandidates[Math.floor(Math.random() * frictionCandidates.length)];
+      const rivalPool = frictionCandidates.filter(
+        (b) =>
+          b.id !== a.id &&
+          !areAllied(next, a.id, b.id) &&
+          !hasNonAggressionPact(next, a.id, b.id) &&
+          getRelation(next, a.id, b.id) <= -12 &&
+          (hasLandBorder(next, a.id, b.id) || (a.gdpIncome >= 20 && b.gdpIncome >= 20))
+      );
+      if (rivalPool.length > 0) {
+        const b = rivalPool[Math.floor(Math.random() * rivalPool.length)];
+        adjustRelation(next, a.id, b.id, -10);
+        next.geopoliticalFriction = clamp(roundInt(next.geopoliticalFriction + 6), 0, 100);
+        next.globalTension = clamp(roundInt(next.globalTension + 2), 0, 100);
+        if (!hasSanctioned(next, a.id, b.id) && getRelation(next, a.id, b.id) <= -35) {
+          next.sanctions[sanctionKey(a.id, b.id)] = true;
+          next.news.unshift(
+            makeNews(
+              next.turn,
+              'economy',
+              `Escalation tra rivali: ${a.name} sanziona ${b.name}`,
+              `Nuovi attriti geopolitici portano ${a.name} a bloccare gli scambi strategici con ${b.name} (Tensione Globale ${next.globalTension}%).`,
+              [a.id, b.id],
+              next.scenarioId
+            )
+          );
+        }
+      }
+    }
+  }
+
+  // 5C. Regional flashpoints & AI-vs-AI wars (reliable 6-18 month emergence without monthly chaos)
+  const baseFlashChance =
+    next.globalTension >= 65 ? 0.24 : next.globalTension >= 40 ? 0.14 : 0.06;
+  const frictionBonus =
+    next.wars.length === 0 && next.turn >= 5
+      ? clamp((next.geopoliticalFriction - 30) / 110, 0, 0.34)
+      : next.geopoliticalFriction >= 75
+        ? 0.12
+        : 0;
+
+  if (activeAiWars < 4 && next.turn >= 4 && Math.random() < baseFlashChance + frictionBonus) {
     const potentialAttackers = sovereigns.filter(
       (n) =>
         n.id !== next.playerId &&
         !n.strictNeutral &&
-        n.army.ground >= 60 &&
+        n.army.ground >= 45 &&
         !next.wars.some((w) => w.attackerId === n.id || w.defenderId === n.id)
     );
     if (potentialAttackers.length > 0) {
-      const actor = potentialAttackers[Math.floor(Math.random() * potentialAttackers.length)];
-      const rivalTargets = sovereigns.filter(
-        (t) =>
-          t.id !== actor.id &&
-          t.id !== next.playerId &&
-          !t.strictNeutral &&
-          !areAllied(next, actor.id, t.id) &&
-          getRelation(next, actor.id, t.id) <= -25 &&
-          checkMilitaryReach(next, actor.id, t.id).canReach
-      );
-      if (rivalTargets.length > 0) {
-        const victim = rivalTargets[Math.floor(Math.random() * rivalTargets.length)];
-        createWarEntry(next, actor.id, victim.id, false);
-        actor.aggressiveness = clamp(roundInt(actor.aggressiveness + 14), 0, 100);
+      // Prefer bordering rival pairs or opportunistic matchups against weak/unstable targets
+      const matchups: Array<{ actor: NationState; victim: NationState; weight: number }> = [];
+      for (const actor of potentialAttackers) {
+        const actorRating = getMilitaryRating(actor);
+        for (const victim of sovereigns) {
+          if (
+            victim.id === actor.id ||
+            victim.id === next.playerId ||
+            victim.strictNeutral ||
+            areAllied(next, actor.id, victim.id) ||
+            hasNonAggressionPact(next, actor.id, victim.id)
+          ) {
+            continue;
+          }
+          const rel = getRelation(next, actor.id, victim.id);
+          const bordering = hasLandBorder(next, actor.id, victim.id);
+          const reachable = bordering || checkMilitaryReach(next, actor.id, victim.id).canReach;
+          if (!reachable) continue;
+          const victimRating = getMilitaryRating(victim);
+          const isOpportunistic = victim.stability < 45 || actorRating >= victimRating * 1.15;
+          if (rel <= -20 || (bordering && rel <= -5 && isOpportunistic)) {
+            const weight =
+              (bordering ? 3 : 1) +
+              (rel <= -40 ? 2 : 0) +
+              (isOpportunistic ? 2 : 0);
+            matchups.push({ actor, victim, weight });
+          }
+        }
+      }
+
+      if (matchups.length > 0) {
+        matchups.sort((x, y) => y.weight - x.weight);
+        const topSlice = matchups.slice(0, Math.min(8, matchups.length));
+        const chosen = topSlice[Math.floor(Math.random() * topSlice.length)];
+        createWarEntry(next, chosen.actor.id, chosen.victim.id, false);
+        chosen.actor.aggressiveness = clamp(roundInt(chosen.actor.aggressiveness + 14), 0, 100);
         next.globalTension = clamp(roundInt(next.globalTension + 6), 0, 100);
+        next.geopoliticalFriction = clamp(roundInt(next.geopoliticalFriction - 32), 5, 100);
         next.news.unshift(
           makeNews(
             next.turn,
             'war',
-            `Crisi regionale: ${actor.name} attacca ${victim.name}`,
-            `L’alta tensione internazionale sfocia in un conflitto aperto tra ${actor.name} e ${victim.name}.`,
-            [actor.id, victim.id]
+            `Crisi regionale: ${chosen.actor.name} attacca ${chosen.victim.name}`,
+            `La crescente frizione geopolitica sfocia in un conflitto aperto tra ${chosen.actor.name} e ${chosen.victim.name}.`,
+            [chosen.actor.id, chosen.victim.id],
+            next.scenarioId
           )
         );
-        triggerDominoReactions(next, actor.id, victim.id);
+        triggerDominoReactions(next, chosen.actor.id, chosen.victim.id);
       }
     }
   }
@@ -1472,7 +1871,8 @@ export function advanceTurn(state: GameState): GameState {
             'diplomacy',
             `Cessate il fuoco tra ${a.name} e ${b.name}`,
             `Dopo mesi di logoramento, i due paesi firmano una tregua mediata a livello internazionale.`,
-            [a.id, b.id]
+            [a.id, b.id],
+            next.scenarioId
           )
         );
       }
@@ -1481,13 +1881,27 @@ export function advanceTurn(state: GameState): GameState {
 
   // 7. Gentle global tension drift
   if (next.wars.length === 0) {
-    next.globalTension = clamp(roundInt(next.globalTension - 2), 10, 100);
+    next.globalTension = clamp(roundInt(next.globalTension - 1), 12, 100);
   } else {
     next.globalTension = clamp(
       roundInt(next.globalTension + (next.wars.length >= 4 ? 2 : 0)),
-      10,
+      12,
       100
     );
+  }
+
+  // 8. Live Chronicles EVERY turn: guarantee at least one fresh world event in the Chronicle
+  const hasNewsThisTurn = next.news.some((item) => item.turn === next.turn);
+  if (!hasNewsThisTurn || Math.random() < 0.35) {
+    next.news.unshift(generatePeacetimeWorldNews(next));
+  }
+
+  // 9. Trigger Interactive National Crisis / World Council Summit Event (every 2-4 turns)
+  if (!next.pendingEvent) {
+    const evt = maybeTriggerInteractiveEvent(next);
+    if (evt) {
+      next.pendingEvent = evt;
+    }
   }
 
   next.news = next.news.slice(0, 60);

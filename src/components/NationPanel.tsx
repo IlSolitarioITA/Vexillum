@@ -690,15 +690,30 @@ export const NationPanel: React.FC<NationPanelProps> = ({
               {/* PLAYER OWN ECONOMY SUMMARY */}
               {isPlayer && (
                 <div className="space-y-3 pt-1">
-                  <div className="rounded-lg bg-slate-900/80 border border-slate-800 p-3 space-y-2 text-xs">
-                    <div className="font-semibold text-slate-200">Bilancio Mensile</div>
+                  <div className="rounded-lg bg-slate-900/80 border border-slate-800 p-3 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between font-semibold text-slate-200 pb-0.5">
+                      <span>Bilancio Mensile</span>
+                      <span
+                        className={`font-mono-num text-[11px] ${
+                          eco.debtToGdpPercent > 140
+                            ? 'text-rose-400'
+                            : eco.debtToGdpPercent > 100
+                              ? 'text-amber-300'
+                              : 'text-slate-400'
+                        }`}
+                      >
+                        Debito/PIL {eco.debtToGdpPercent}%
+                      </span>
+                    </div>
                     <div className="flex justify-between text-slate-300">
                       <span>PIL Nazionale Base</span>
                       <span className="font-mono-num">+{eco.baseGdp} B$</span>
                     </div>
-                    {eco.annexedGdp > 0 && (
+                    {eco.annexedCount > 0 && (
                       <div className="flex justify-between text-slate-300">
-                        <span>Territori Annessi</span>
+                        <span>
+                          Territori Annessi (resa {eco.avgAnnexedIntegrationPercent}%)
+                        </span>
                         <span className="font-mono-num text-cyan-300">+{eco.annexedGdp} B$</span>
                       </div>
                     )}
@@ -709,8 +724,22 @@ export const NationPanel: React.FC<NationPanelProps> = ({
                       </div>
                     )}
                     <div className="flex justify-between text-slate-300">
+                      <span>Servizi Civili & Governo</span>
+                      <span className="font-mono-num text-amber-300">-{eco.civilianCost} B$</span>
+                    </div>
+                    {eco.adminCost > 0 && (
+                      <div className="flex justify-between text-slate-300">
+                        <span>Amministrazione Annessioni</span>
+                        <span className="font-mono-num text-amber-300">-{eco.adminCost} B$</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-300">
                       <span>Mantenimento Forze Armate</span>
                       <span className="font-mono-num text-rose-300">-{eco.upkeep} B$</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300">
+                      <span>Interessi Debito Pubblico</span>
+                      <span className="font-mono-num text-rose-300">-{eco.debtInterest} B$</span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-slate-800 font-semibold text-slate-100">
                       <span>Saldo Netto / Mese</span>
@@ -744,7 +773,7 @@ export const NationPanel: React.FC<NationPanelProps> = ({
                     className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-xs font-semibold bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 border border-cyan-400/40 transition-colors cursor-pointer"
                   >
                     <Shield className="w-4 h-4 shrink-0" />
-                    <span>Gestisci Esercito e Ricerca Tecnologica</span>
+                    <span>Apri Comando & Governo</span>
                   </button>
                 </div>
               )}

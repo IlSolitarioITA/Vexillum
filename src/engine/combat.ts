@@ -2,6 +2,7 @@ import { ArmyBranches, AttackMode, BattleReport, GameState, NationState, War } f
 import {
   clamp,
   formatTurnDate,
+  getDefenseCombatMultiplier,
   getDistanceLogisticsFactor,
   hasLandBorder,
   hasTech,
@@ -52,8 +53,8 @@ export function computeDomainForces(
   const defNavy = Math.max(0, safeNum(defender.army.navy));
   const defDefense = Math.max(0, safeNum(defender.army.defense));
 
-  // Attacker technology & morale multipliers
-  let atkTech = 1.0;
+  // Attacker technology, defense budget readiness & morale multipliers
+  let atkTech = getDefenseCombatMultiplier(attacker);
   if (hasTech(attacker, 'tactical_drones')) atkTech *= 1.18;
   if (hasTech(attacker, 'precision_artillery')) atkTech *= 1.16;
   if (hasTech(attacker, 'joint_doctrine')) atkTech *= 1.22;
@@ -61,11 +62,11 @@ export function computeDomainForces(
   const atkStab = clamp(0.78 + (safeNum(attacker.stability, 70) / 100) * 0.26, 0.75, 1.05);
   const atkCrisis = attacker.internalCrisisActive ? 0.8 : 1.0;
 
-  // Defender technology, terrain, hybrid warfare debuffs & morale
+  // Defender technology, terrain, defense budget, hybrid warfare debuffs & morale
   const airDefDisabled = safeNum(defender.airDefenseDisabledUntilTurn, -1) >= state.turn;
   const sabotaged = safeNum(defender.sabotagedUntilTurn, -1) >= state.turn;
 
-  let defTech = safeNum(defender.terrainDefense, 1.12);
+  let defTech = safeNum(defender.terrainDefense, 1.12) * getDefenseCombatMultiplier(defender);
   if (hasTech(defender, 'integrated_air_defense') && !airDefDisabled) defTech *= 1.26;
   if (hasTech(defender, 'precision_artillery')) defTech *= 1.14;
   if (hasTech(defender, 'joint_doctrine')) defTech *= 1.15;
